@@ -22,7 +22,7 @@ The initial MVP uses:
 - Arrow Flight RPC as the query/import server protocol.
 - Vortex files as the persistent data file format.
 - S3-compatible object storage as the file storage backend.
-- The [mangrobe protocol](./mangrobe-api.proto) as the metadata/catalog protocol.
+- The [mangrobe protocol](mangrobe-api.proto) as the metadata/catalog protocol.
 
 For the initial implementation, the mangrobe protocol is not implemented in
 this repository. `mangrobe-db` calls it as an external service in the final
