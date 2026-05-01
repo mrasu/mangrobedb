@@ -112,7 +112,9 @@ Files may have different schemas.
 
 Import schema behavior:
 
-- Unknown user columns are added to the in-memory table definition.
+- Unknown user columns are synchronously added to the mock schema/catalog state,
+  including the current in-memory table definition, before imported rows are
+  accepted into the buffer.
 - Known columns with the same type are accepted.
 - Known columns with a different type cause import failure.
 - Columns with the `__mangrobe__` prefix cause import failure.
@@ -245,7 +247,6 @@ src/
       reader.rs
       writer.rs
     clock.rs
-    file_id.rs
 
   server/
     mod.rs
@@ -376,9 +377,17 @@ temporary MVP restrictions such as `dummy_table`-only imports and `stream_id =
 gRPC/protobuf integer shape unless the future mangrobe protocol fixes a
 different type. `PartitionTime` is represented as `chrono::DateTime<Utc>`.
 
-`FileId` accepts a string through `TryFrom`. The initial implementation may
-generate UUID-based file IDs, but generation is owned by
-`FileIdGeneratorPort`, not by domain path construction.
+`FileId` accepts a string through `TryFrom`. In the initial writer path this is
+the generated identifier embedded in the immutable object file path. It is not
+the mangrobe catalog-internal `file_id` returned by read APIs such as
+`GetCurrentState` or `GetFileInfo`.
+
+The initial writer uses UUID strings as the generated object file path
+component. UUID generation is owned by `UuidGeneratorPort` so tests can mock
+the external randomness dependency. `UuidGeneratorPort` only generates UUIDs;
+it does not create `FileId` values or file paths. The application layer converts
+the generated UUID string into `FileId` and passes it to domain file path
+construction.
 
 `domain/file.rs` owns file naming and path construction. It builds the
 table-relative file path:
@@ -445,6 +454,7 @@ The application layer owns use-case flow.
 
 - Initial table restriction to `dummy_table`.
 - Import request batch schema consistency.
+- Synchronous mock schema/catalog validation and update before buffering rows.
 - Initial `stream_id = 0` restriction.
 - Calling domain table mapping to derive internal columns.
 - Adding rows to the import buffer.
@@ -460,11 +470,11 @@ The application layer owns use-case flow.
 ```text
 FlushService
   -> take flush units from the import buffer
-  -> generate a FileId
+  -> generate a UUID through UuidGeneratorPort
+  -> convert the UUID string into a FileId
   -> build a table-relative FilePath from domain/file.rs
-  -> join TableDefinition.storage_prefix and FilePath into ObjectKey
   -> write a Vortex temporary file and compute statistics
-  -> upload the temporary file to object storage
+  -> upload the temporary file to object storage using TableDefinition and FilePath
   -> register the table-relative FilePath and statistics in the catalog
 ```
 
@@ -479,7 +489,7 @@ CatalogPort
 ObjectStorePort
 VortexPort
 ClockPort
-FileIdGeneratorPort
+UuidGeneratorPort
 ```
 
 There is no `QueryEnginePort` in the initial design. Query execution uses
@@ -488,15 +498,17 @@ DataFusion directly through `application/datafusion/`.
 `CatalogPort` abstracts the mock mangrobe protocol client and the future real
 mangrobe protocol client.
 
-`ObjectStorePort` abstracts object storage operations. It uploads local files
-using object keys produced from table definitions and file paths.
+`ObjectStorePort` abstracts object storage operations. For writer uploads it
+accepts the table definition, table-relative file path, and local temporary file
+path. The object storage implementation resolves the full object key by joining
+the table definition's storage prefix with the table-relative file path.
 
 `VortexPort` abstracts Vortex file writing and reading. Vortex and object store
 ports are separate because Vortex owns file format behavior and statistics
 computation, while object storage owns file placement.
 
-`ClockPort` and `FileIdGeneratorPort` are ports so tests can mock time and file
-ID generation.
+`ClockPort` and `UuidGeneratorPort` are ports so tests can mock time and UUID
+generation.
 
 The initial port traits use Rust `async fn in trait` directly for operations
 that need asynchronous I/O. The initial design does not use `async_trait`.
@@ -504,7 +516,7 @@ If trait-object usage, mocking, or service composition later makes this
 awkward, the implementation can revisit this decision.
 
 `CatalogPort`, `ObjectStorePort`, and `VortexPort` use async methods only where
-they actually perform I/O. `ClockPort` and `FileIdGeneratorPort` are ordinary
+they actually perform I/O. `ClockPort` and `UuidGeneratorPort` are ordinary
 synchronous traits.
 
 Port methods return `anyhow::Result` in the initial implementation. Detailed
@@ -702,13 +714,13 @@ These details are intentionally not fixed yet:
 - The domain layer may store Apache Arrow `DataType` values directly.
 - `StreamId` is represented as `i64`.
 - `PartitionTime` is represented as `chrono::DateTime<Utc>`.
-- `FileId` accepts strings, while UUID-based generation belongs behind
-  `FileIdGeneratorPort`.
+- `FileId` accepts strings. UUID generation belongs behind `UuidGeneratorPort`;
+  file path construction remains domain logic.
 - File statistics preserve Arrow type information and use a domain-owned
   `StatisticsValue` enum for numeric and timestamp min/max values.
 - Application ports use Rust `async fn in trait` directly where asynchronous
   I/O is needed; the initial design does not use `async_trait`.
-- `ClockPort` and `FileIdGeneratorPort` are synchronous traits.
+- `ClockPort` and `UuidGeneratorPort` are synchronous traits.
 - Initial port methods return `anyhow::Result` until the detailed error model is
   decided.
 - The domain layer defines `DomainError`, and domain `TryFrom` implementations
@@ -724,6 +736,9 @@ These details are intentionally not fixed yet:
   prefix.
 - Actual object keys are produced by joining `storage_prefix` and table-relative
   file path.
+- Writer-side object storage upload accepts the table definition,
+  table-relative file path, and local temporary file path. The object storage
+  implementation resolves the full object key internally.
 - File paths use `stream_id={stream_id}/partition_time=YYYYMMDD_HHMMSS`.
 - Cross-process concurrent use of the same mock catalog/schema persistence
   files is out of scope.

@@ -22,7 +22,7 @@ The initial MVP uses:
 - Arrow Flight RPC as the query/import server protocol.
 - Vortex files as the persistent data file format.
 - S3-compatible object storage as the file storage backend.
-- The mangrobe protocol as the metadata/catalog protocol.
+- The [mangrobe protocol](./mangrobe-api.proto) as the metadata/catalog protocol.
 
 For the initial implementation, the mangrobe protocol is not implemented in
 this repository. `mangrobe-db` calls it as an external service in the final
@@ -189,12 +189,12 @@ document.
 If work is resumed with no conversation context, open `rough.md`,
 `development.md`, `writer.md`, and `reader.md`.
 
-`development.md` has enough shared development decisions for now. Treat it as
-temporarily complete unless the user explicitly wants to revisit shared
-development structure. The next natural specification step is `writer.md`,
-because writer/import behavior is closest to the domain schema, table mapping,
-import buffer, flush unit, file statistics, object storage upload, and catalog
-registration decisions already captured in `development.md`.
+`development.md` and `writer.md` have enough shared and writer-side decisions
+for now. Treat them as temporarily complete unless the user explicitly wants to
+revisit those topics. The next natural specification step is `reader.md`,
+because reader/query behavior still has open details around Flight query
+encoding, DataFusion integration, SQL validation, Vortex reading, and mock
+catalog read/query structures.
 
 Use these files as the continuation context:
 
@@ -244,6 +244,25 @@ Known decisions so far:
 - OTel ingest and compaction are out of scope.
 - `development.md` is temporarily complete as the shared development
   specification.
+- `writer.md` is temporarily complete as the writer/import specification.
+- Import uses Arrow Flight `DoPut` with descriptor path `["import",
+  table_name]`.
+- Import synchronously validates and updates mock schema/catalog state before
+  buffering rows.
+- Import success means rows were accepted into the in-memory import buffer, not
+  that they are query-visible.
+- Imported rows become query-visible only after asynchronous Vortex write,
+  object storage upload, and `AddFiles` registration succeed.
+- One import request may contain rows from multiple partition hours. Buffering
+  and flushing split those rows by flush unit.
+- One background flush tick registers its produced files with one `AddFiles`
+  request when possible. Files in that request become visible together.
+- Object storage upload accepts the table definition, table-relative file path,
+  and local temporary file path. The object storage implementation resolves the
+  full object key internally.
+- Mock catalog file registration uses table-relative paths.
+- Initial mock catalog file registration includes path, size, and column
+  statistics, but not row count.
 - Mock schema and catalog persistence uses one directly overwritten JSON file:
   `./data/mock/state.json`.
 - Domain value objects use `TryFrom`; the domain layer defines `DomainError`.
@@ -256,11 +275,9 @@ Known decisions so far:
 
 Open or intentionally undecided details:
 
-- Exact Arrow Flight action or RPC encoding for `Query(sql)` and
-  `Import(arrow)`.
+- Exact Arrow Flight action or RPC encoding for `Query(sql)`.
 - Exact DataFusion table provider design.
 - Exact SQL validation implementation.
-- Exact mock mangrobe catalog data structures.
 - Exact Rust signatures for application ports.
 - Exact import error model.
 - Reader-side object-store/Vortex/DataFusion file handoff shape.
