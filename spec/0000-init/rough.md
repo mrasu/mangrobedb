@@ -114,7 +114,7 @@ Detailed writer behavior is specified in `writer.md`.
 
 The server accepts SQL queries through Arrow Flight RPC.
 
-The initial MVP must support these query shapes:
+The initial MVP must support at least these query shapes:
 
 ```sql
 select * from dummy_table
@@ -127,16 +127,19 @@ where posted_at between timestamp '2026-04-30 00:00:00'
                     and timestamp '2026-04-30 23:59:59'
 ```
 
-The initial SQL surface is intentionally narrow.
+The initial SQL surface is narrower than full SQL, but DataFusion-supported
+projections, filter expressions, and aggregate functions over `dummy_table` are
+allowed unless they use an explicitly rejected SQL feature.
 
 Detailed supported and rejected SQL behavior is specified in `reader.md`.
 
 ## Pruning
 
 The initial implementation performs partition pruning and file statistics
-pruning for the supported query shapes. String predicates such as `user = 'foo'`
-are not used for file-level pruning in the initial MVP. They are still applied
-by DataFusion during query execution.
+pruning when supported predicates can be extracted. String predicates such as
+`user = 'foo'` are not used for mangrobe catalog statistics pruning in the
+initial MVP. They are still applied by DataFusion or pushed down by
+`vortex-datafusion` when supported.
 
 Detailed pruning behavior is specified in `reader.md`.
 
@@ -189,12 +192,10 @@ document.
 If work is resumed with no conversation context, open `rough.md`,
 `development.md`, `writer.md`, and `reader.md`.
 
-`development.md` and `writer.md` have enough shared and writer-side decisions
+`development.md`, `writer.md`, and `reader.md` have enough initial decisions
 for now. Treat them as temporarily complete unless the user explicitly wants to
-revisit those topics. The next natural specification step is `reader.md`,
-because reader/query behavior still has open details around Flight query
-encoding, DataFusion integration, SQL validation, Vortex reading, and mock
-catalog read/query structures.
+revisit those topics. The next natural step is implementation planning or
+implementation work.
 
 Use these files as the continuation context:
 
@@ -204,12 +205,11 @@ Use these files as the continuation context:
 - `writer.md`: writer/import/flush/Vortex-write details.
 - `reader.md`: reader/query/pruning/Vortex-read details.
 
-When continuing the specification, do not silently choose implementation
-details. Ask for explicit decisions before fixing details such as public structs
-and traits, public functions, error types, test cases, exact DataFusion table
-provider implementation, exact Vortex read/write API signatures, mock catalog
-storage model, object storage API signatures, or Arrow Flight RPC method
-mapping.
+When continuing the specification or starting implementation, do not silently
+choose implementation details. Ask for explicit decisions before fixing details
+such as public structs and traits, public functions, error types, test cases,
+exact Rust signatures, mock catalog storage model, object storage API
+signatures, or helper names for the DataFusion/Vortex handoff.
 
 However, do not reopen already-decided `development.md` topics unless needed.
 Shared development decisions already made include domain value construction,
@@ -238,8 +238,20 @@ Known decisions so far:
 - Multiple imports, multiple queries, and background flushes may run
   concurrently within one server process.
 - Query results are returned as Arrow over Flight.
+- Query uses Arrow Flight `DoGet` directly in the initial MVP.
 - Query execution uses DataFusion.
-- Query reads selected Vortex files.
+- Query uses a mangrobe-owned, catalog-aware DataFusion table provider for
+  `dummy_table`.
+- The mangrobe table provider uses DataFusion scan filters for catalog-aware
+  file selection.
+- Selected Vortex file scanning is delegated to `vortex-datafusion`; the reader
+  side does not define a separate `VortexReader` abstraction.
+- `GetCurrentState` is partition-aware and can be limited by requested
+  partition times.
+- SQL validation is based on DataFusion logical plan inspection.
+- DataFusion-supported projections, filters, and aggregate functions are
+  allowed when they reference only `dummy_table` user-visible columns and avoid
+  explicitly rejected SQL features.
 - Join, CTE, subquery, DDL, and SQL insert are out of scope.
 - OTel ingest and compaction are out of scope.
 - `development.md` is temporarily complete as the shared development
@@ -275,9 +287,7 @@ Known decisions so far:
 
 Open or intentionally undecided details:
 
-- Exact Arrow Flight action or RPC encoding for `Query(sql)`.
-- Exact DataFusion table provider design.
-- Exact SQL validation implementation.
 - Exact Rust signatures for application ports.
 - Exact import error model.
-- Reader-side object-store/Vortex/DataFusion file handoff shape.
+- Exact helper structs or function names for the reader-side
+  object-store/Vortex/DataFusion file handoff.

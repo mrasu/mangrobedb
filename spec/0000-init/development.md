@@ -10,10 +10,9 @@ details live in `writer.md`. Reader-specific details live in `reader.md`.
 
 This shared development specification is temporarily complete. If work resumes
 without conversation context, do not continue expanding this document by
-default. The next natural specification step is `writer.md`, because
-writer/import behavior depends directly on the domain schema, table mapping,
-import buffer, flush unit, file statistics, object storage upload, and catalog
-registration decisions captured here.
+default. Writer-specific decisions live in `writer.md`, and reader-specific
+decisions live in `reader.md`. The next natural step is implementation planning
+or implementation work.
 
 The remaining open details in this document are intentionally left for
 implementation-time discovery or writer/reader-specific specification work.
@@ -523,12 +522,12 @@ Port methods return `anyhow::Result` in the initial implementation. Detailed
 application-specific error types are intentionally deferred and will be refined
 later.
 
-The reader-side boundary between object storage, Vortex, and DataFusion is not
-fixed yet. If Vortex/DataFusion integration can naturally produce the needed
-`RecordBatch` values without exposing local paths, the reader should use that
-shape. If the Vortex library requires file paths or local files, selected
-objects may be downloaded to temporary local files before reading. This must be
-decided during implementation after checking the actual library APIs.
+The reader-side boundary between object storage, Vortex, and DataFusion is
+owned by `reader.md`. The reader does not define a separate `VortexReader`
+abstraction returning `RecordBatch` values. The mangrobe table provider
+performs catalog-aware file selection and converts selected catalog files into
+DataFusion file-scan inputs for `vortex-datafusion`; Vortex file body reads are
+delegated to `vortex-datafusion`.
 
 ## Error Model
 
@@ -718,6 +717,9 @@ These details are intentionally not fixed yet:
   file path construction remains domain logic.
 - File statistics preserve Arrow type information and use a domain-owned
   `StatisticsValue` enum for numeric and timestamp min/max values.
+- The reader uses a mangrobe-owned, catalog-aware DataFusion table provider and
+  delegates selected Vortex file scanning to `vortex-datafusion`.
+- The reader side does not define a separate `VortexReader` abstraction.
 - Application ports use Rust `async fn in trait` directly where asynchronous
   I/O is needed; the initial design does not use `async_trait`.
 - `ClockPort` and `UuidGeneratorPort` are synchronous traits.
