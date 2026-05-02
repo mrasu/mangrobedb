@@ -1,4 +1,4 @@
-use crate::domain::repository::{TableRepository, TableRepositoryError};
+use crate::domain::port::{CatalogPort, CatalogPortError};
 use crate::domain::table_schema::{DUMMY_TABLE, TableSchema, initial_dummy_table_schema};
 use crate::infrastructure::catalog::persisted::PersistedState;
 use anyhow::{Context, anyhow};
@@ -11,7 +11,7 @@ use tracing::debug;
 const DEFAULT_STATE_PATH: &str = "./data/mock/state.json";
 
 #[derive(Debug)]
-pub struct MockTableRepository {
+pub struct MockCatalogPort {
     state_path: PathBuf,
     state: Mutex<MockState>,
 }
@@ -27,14 +27,14 @@ pub(super) struct MockTable {
     pub(super) schema: TableSchema,
 }
 
-impl MockTableRepository {
+impl MockCatalogPort {
     pub fn load_default() -> anyhow::Result<Self> {
         Self::load(DEFAULT_STATE_PATH)
     }
 
     pub fn load(state_path: impl Into<PathBuf>) -> anyhow::Result<Self> {
         let state_path = state_path.into();
-        debug!(state_path = %state_path.display(), "loading mock table repository");
+        debug!(state_path = %state_path.display(), "loading mock catalog port");
         let state = if state_path.exists() {
             let json = fs::read_to_string(&state_path)
                 .with_context(|| format!("failed to read mock state: {}", state_path.display()))?;
@@ -52,7 +52,7 @@ impl MockTableRepository {
     }
 
     fn save(&self, state: &MockState) -> anyhow::Result<()> {
-        debug!(state_path = %self.state_path.display(), "saving mock table repository state");
+        debug!(state_path = %self.state_path.display(), "saving mock catalog port state");
         if let Some(parent) = self.state_path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create mock state dir: {}", parent.display()))?;
@@ -66,29 +66,29 @@ impl MockTableRepository {
     }
 
     pub fn save_current_state(&self) -> anyhow::Result<()> {
-        debug!("saving current mock table repository state");
+        debug!("saving current mock catalog port state");
         let state = self
             .state
             .lock()
-            .map_err(|_| anyhow!("mock table repository state lock is poisoned"))?;
+            .map_err(|_| anyhow!("mock catalog port state lock is poisoned"))?;
 
         self.save(&state)
     }
 }
 
-impl TableRepository for MockTableRepository {
-    fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, TableRepositoryError> {
-        debug!(table_name, "getting table schema from mock table repository");
+impl CatalogPort for MockCatalogPort {
+    fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogPortError> {
+        debug!(table_name, "getting table schema from mock catalog port");
         let state = self
             .state
             .lock()
-            .map_err(|_| anyhow!("mock table repository state lock is poisoned"))?;
+            .map_err(|_| anyhow!("mock catalog port state lock is poisoned"))?;
 
         state
             .tables
             .get(table_name)
             .map(|table| table.schema.clone())
-            .ok_or_else(|| TableRepositoryError::TableNotFound {
+            .ok_or_else(|| CatalogPortError::TableNotFound {
                 table_name: table_name.to_string(),
             })
     }
@@ -97,15 +97,15 @@ impl TableRepository for MockTableRepository {
         &self,
         table_name: &str,
         schema: TableSchema,
-    ) -> Result<(), TableRepositoryError> {
-        debug!(table_name, "updating table schema in mock table repository");
+    ) -> Result<(), CatalogPortError> {
+        debug!(table_name, "updating table schema in mock catalog port");
         let mut state = self
             .state
             .lock()
-            .map_err(|_| anyhow!("mock table repository state lock is poisoned"))?;
+            .map_err(|_| anyhow!("mock catalog port state lock is poisoned"))?;
 
         let table = state.tables.get_mut(table_name).ok_or_else(|| {
-            TableRepositoryError::TableNotFound {
+            CatalogPortError::TableNotFound {
                 table_name: table_name.to_string(),
             }
         })?;

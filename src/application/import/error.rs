@@ -1,7 +1,7 @@
 use arrow::error::ArrowError;
 use thiserror::Error;
 
-use crate::domain::repository::TableRepositoryError;
+use crate::domain::port::CatalogPortError;
 use crate::domain::table_schema::TableSchemaError;
 
 #[derive(Debug, Error)]
@@ -64,13 +64,13 @@ impl From<ArrowError> for ImportError {
     }
 }
 
-impl From<TableRepositoryError> for ImportError {
-    fn from(value: TableRepositoryError) -> Self {
+impl From<CatalogPortError> for ImportError {
+    fn from(value: CatalogPortError) -> Self {
         match value {
-            TableRepositoryError::TableNotFound { table_name } => {
+            CatalogPortError::TableNotFound { table_name } => {
                 ImportUserError::InvalidTable { table_name }.into()
             }
-            TableRepositoryError::Internal(error) => Self::Internal(error),
+            CatalogPortError::Internal(error) => Self::Internal(error),
         }
     }
 }

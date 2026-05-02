@@ -1,6 +1,6 @@
 use crate::application::import::error::{ImportError, ImportUserError};
 use crate::application::import::validate::validate_schema;
-use crate::domain::repository::TableRepository;
+use crate::domain::port::CatalogPort;
 use crate::domain::table_mapping::{MappingStrategy, TableMapping};
 use crate::domain::table_records::TableRecords;
 use crate::domain::table_schema::TableSchema;
@@ -51,9 +51,9 @@ impl ImportingRecords<Validated> {
         Ok(Self::new(table_schema, record_batches))
     }
 
-    pub fn update_mangrobe_schema_if_required<R: TableRepository>(
+    pub fn update_mangrobe_schema_if_required<R: CatalogPort>(
         self,
-        repository: &R,
+        port: &R,
     ) -> Result<ImportingRecords<MangrobeSchemaUpdated>, ImportError> {
         let schema = self
             .record_batches
@@ -65,7 +65,7 @@ impl ImportingRecords<Validated> {
             .add_missing_public_columns_if_required(&schema)?;
 
         if result.schema_changed {
-            repository.update_table_schema(&result.schema.name, result.schema.clone())?;
+            port.update_table_schema(&result.schema.name, result.schema.clone())?;
         }
 
         Ok(ImportingRecords::new(result.schema, self.record_batches))

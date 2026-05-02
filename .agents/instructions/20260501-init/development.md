@@ -53,6 +53,8 @@ The initial mock persistence file is:
 ```
 
 This single JSON file contains both mock schema state and mock catalog state.
+Mock table schema state includes user-visible public columns and internal
+column mappings.
 
 This persistence is only for the mock implementation. It must not be stored in
 the same object-storage location as real table data.
@@ -63,6 +65,13 @@ If `state.json` does not exist, the server starts from the initial
 The mock state file may be directly overwritten when the schema or catalog
 changes. The initial mock implementation does not need atomic temp-file and
 rename behavior.
+
+The server writes the current mock state during graceful shutdown, such as
+Ctrl-C.
+
+Persisted tables are sorted by table name. Persisted public columns are sorted
+by column name. This keeps `state.json` stable when the logical mock state has
+not changed.
 
 If `state.json` exists but cannot be read or parsed, server startup fails. The
 server only falls back to the initial schema and empty catalog when the file does
@@ -294,31 +303,24 @@ TableDefinition
   mapping: TableMapping
 ```
 
-`TableDefinition.schema` includes both user-visible columns and internal
-columns. Internal columns are hidden from mangrobe-db users, but the catalog
-sees them as ordinary registered columns. Therefore each column definition must
-record whether the column is user-visible or internal.
+`TableDefinition.schema` stores user-visible columns and table mappings.
+Internal columns are hidden from mangrobe-db users and are represented by the
+table mappings.
 
 ```text
 TableSchema
-  columns: Vec<ColumnDefinition>
-  column_index: HashMap<ColumnName, usize>
+  public_columns: Vec<PublicColumnDefinition>
+  stream_id_mapping: TableMapping
+  partition_time_mapping: TableMapping
 
 ColumnDefinition
   name: ColumnName
   data_type: Arrow DataType
-  kind: ColumnKind
-
-ColumnKind
-  User
-  Internal
 ```
 
-`TableSchema.columns` is the authoritative column order. This order is used for
-schema presentation such as `select *`. The initial order is the initial table
-schema order, and unknown imported user columns are appended in discovery order.
-`TableSchema.column_index` is maintained for lookup by column name and points
-into `columns`.
+`TableSchema.public_columns` is the in-memory user-visible column list. Unknown
+imported user columns are appended in discovery order during import processing.
+The persisted JSON representation sorts public columns by column name.
 
 The initial `dummy_table` schema includes:
 
@@ -328,12 +330,12 @@ stream_id: int                           User
 message: text                            User
 user: text                               User
 posted_at: timestamp                     User
-__mangrobe__stream_id: int               Internal
-__mangrobe__partition_time: timestamp    Internal
+stream_id -> __mangrobe__stream_id       Mapping
+posted_at -> __mangrobe__partition_time  Mapping
 ```
 
-Unknown imported user columns are added to `TableSchema` as `ColumnKind::User`.
-The internal columns remain fixed for the initial implementation.
+Unknown imported user columns are added to `TableSchema.public_columns`. The
+internal mappings are stored with the table definition.
 
 Domain values should be represented with explicit domain types where practical,
 rather than raw `String` or primitive values. Examples:
@@ -480,10 +482,18 @@ FlushService
 under `application/datafusion/`, not under `infrastructure/`, because DataFusion
 is treated as part of the query application logic for this project.
 
-`application/ports.rs` defines ports for external dependencies:
+`domain/port.rs` defines metadata ports owned by the domain model:
 
 ```text
 CatalogPort
+```
+
+`CatalogPort` abstracts mock and real mangrobe catalog metadata access for schema
+lookup and schema update.
+
+`application/ports.rs` defines non-metadata ports for external dependencies:
+
+```text
 ObjectStorePort
 VortexPort
 ClockPort
@@ -492,9 +502,6 @@ UuidGeneratorPort
 
 There is no `QueryEnginePort` in the initial design. Query execution uses
 DataFusion directly through `application/datafusion/`.
-
-`CatalogPort` abstracts the mock mangrobe protocol client and the future real
-mangrobe protocol client.
 
 `ObjectStorePort` abstracts object storage operations. For writer uploads it
 accepts the table definition, table-relative file path, and local temporary file
@@ -513,9 +520,9 @@ that need asynchronous I/O. The initial design does not use `async_trait`.
 If trait-object usage, mocking, or service composition later makes this
 awkward, the implementation can revisit this decision.
 
-`CatalogPort`, `ObjectStorePort`, and `VortexPort` use async methods only where
-they actually perform I/O. `ClockPort` and `UuidGeneratorPort` are ordinary
-synchronous traits.
+`ObjectStorePort` and `VortexPort` use async methods only where they actually
+perform I/O. `ClockPort` and `UuidGeneratorPort` are ordinary synchronous
+traits.
 
 Port methods return `anyhow::Result` in the initial implementation. Detailed
 application-specific error types are intentionally deferred and will be refined
@@ -602,7 +609,7 @@ Domain value object tests should cover:
 Table schema tests should cover:
 
 - Initial schema order.
-- `column_index` lookup.
+- Public column lookup by name.
 - Unknown imported user columns are appended.
 - Duplicate columns are rejected.
 - Incompatible known column types are rejected.
@@ -699,8 +706,10 @@ These details are intentionally not fixed yet:
   `./data/mock/state.json`.
 - If `state.json` is missing, the server starts from the initial `dummy_table`
   schema and an empty catalog.
+- The server writes the current mock state during graceful shutdown.
 - The mock state file may be directly overwritten; atomic temp-file and rename
   behavior is not required for the initial mock implementation.
+- Persisted tables and public columns are sorted by name for stable JSON output.
 - If `state.json` exists but cannot be read or parsed, startup fails.
 - Mock persistence is separate from real object storage.
 - Existing object-store files are not scanned to reconstruct catalog or schema
@@ -709,8 +718,8 @@ These details are intentionally not fixed yet:
 - Domain table, schema, column, file, path, partition, and statistics concepts
   use explicit newtype-style domain values where practical.
 - Validated domain values are constructed through `TryFrom`.
-- `TableSchema.columns` preserves schema order, and `TableSchema.column_index`
-  provides lookup by column name.
+- `TableSchema.public_columns` stores user-visible columns, while internal
+  columns are represented through table mappings.
 - The domain layer may store Apache Arrow `DataType` values directly.
 - `StreamId` is represented as `i64`.
 - `PartitionTime` is represented as `chrono::DateTime<Utc>`.

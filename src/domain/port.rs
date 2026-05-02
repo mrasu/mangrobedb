@@ -3,28 +3,28 @@ use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum TableRepositoryError {
+pub enum CatalogPortError {
     #[error("table not found: {table_name}")]
     TableNotFound { table_name: String },
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
 
-pub trait TableRepository {
-    fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, TableRepositoryError>;
+pub trait CatalogPort {
+    fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogPortError>;
 
     fn update_table_schema(
         &self,
         table_name: &str,
         schema: TableSchema,
-    ) -> Result<(), TableRepositoryError>;
+    ) -> Result<(), CatalogPortError>;
 }
 
-impl<T> TableRepository for Arc<T>
+impl<T> CatalogPort for Arc<T>
 where
-    T: TableRepository + ?Sized,
+    T: CatalogPort + ?Sized,
 {
-    fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, TableRepositoryError> {
+    fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogPortError> {
         (**self).get_table_schema(table_name)
     }
 
@@ -32,7 +32,7 @@ where
         &self,
         table_name: &str,
         schema: TableSchema,
-    ) -> Result<(), TableRepositoryError> {
+    ) -> Result<(), CatalogPortError> {
         (**self).update_table_schema(table_name, schema)
     }
 }

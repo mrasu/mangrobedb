@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::application::import::service::ImportService;
-use crate::infrastructure::catalog::mock::MockTableRepository;
+use crate::infrastructure::catalog::mock::MockCatalogPort;
 use arrow_flight::flight_service_server::{FlightService, FlightServiceServer};
 use arrow_flight::{
     Action, ActionType, Criteria, Empty, FlightData, FlightDescriptor, FlightInfo,
@@ -17,7 +17,7 @@ use super::import;
 
 type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
-pub type SharedImportService = Arc<ImportService<Arc<MockTableRepository>>>;
+pub type SharedImportService = Arc<ImportService<Arc<MockCatalogPort>>>;
 
 #[derive(Debug)]
 pub struct MangrobeFlightService {
@@ -31,8 +31,8 @@ impl MangrobeFlightService {
 }
 
 pub async fn serve(addr: SocketAddr) -> Result<(), anyhow::Error> {
-    let table_repository = Arc::new(MockTableRepository::load_default()?);
-    let import_service = Arc::new(ImportService::new(Arc::clone(&table_repository)));
+    let catalog_port = Arc::new(MockCatalogPort::load_default()?);
+    let import_service = Arc::new(ImportService::new(Arc::clone(&catalog_port)));
 
     Server::builder()
         .add_service(FlightServiceServer::new(MangrobeFlightService::new(
@@ -45,7 +45,7 @@ pub async fn serve(addr: SocketAddr) -> Result<(), anyhow::Error> {
         })
         .await?;
 
-    table_repository.save_current_state()?;
+    catalog_port.save_current_state()?;
 
     Ok(())
 }

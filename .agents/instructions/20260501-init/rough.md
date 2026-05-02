@@ -160,10 +160,10 @@ Catalog registration is the visibility and commit point for imported files.
 Uploading a Vortex file to object storage does not make it visible to queries.
 A file becomes visible only after `AddFiles(...)` succeeds.
 
-The mock catalog state is persisted so the server can resume from the previous
-mock state. If the catalog persistence file does not exist, the server starts
-with an empty catalog. The development details for this mock persistence live in
-`development.md`.
+Mock schema and catalog state are persisted so the server can resume from the
+previous mock state. If the mock persistence file does not exist, the server
+starts with the initial `dummy_table` schema and an empty catalog. The
+development details for this mock persistence live in `development.md`.
 
 Existing object-store files are not scanned at startup to reconstruct the mock
 catalog or schema. Uploaded but unregistered objects remain ignored because

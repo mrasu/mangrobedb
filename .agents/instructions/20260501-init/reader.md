@@ -236,8 +236,8 @@ initial MVP.
 
 These details are intentionally not fixed yet:
 
-- Exact Rust internal data structures for the mock catalog read model and
-  persistence.
+- Exact Rust internal data structures for the mock catalog read model used by
+  file and partition metadata lookups.
 
 ## Known Decisions
 

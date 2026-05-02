@@ -1,6 +1,6 @@
 # TODO
 
-Before implementing a section, read the listed files and ask for explicit user decisions on public APIs, files, structs, functions, tests, or behavior that are not already fixed.
+Before implementing a section, read the listed files and ask for explicit user decisions on APIs, files, structs, functions, tests, or behavior that are not already fixed.
 
 - `Get Writer Working`: read `rough.md`, `development.md`, and `writer.md`.
   This section intentionally writes files synchronously first, before adding
