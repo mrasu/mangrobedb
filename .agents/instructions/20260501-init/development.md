@@ -216,7 +216,6 @@ src/
     partition.rs
     file.rs
     statistics.rs
-    error.rs
 
   application/
     mod.rs
@@ -531,13 +530,13 @@ delegated to `vortex-datafusion`.
 
 ## Error Model
 
-The domain layer defines a concrete `DomainError` type. `TryFrom`
+The domain layer defines a concrete `ApplicationError` and `DomainError` type. `TryFrom`
 implementations for validated domain values return `DomainError`.
 
-The initial domain error cases include:
+The initial application error cases include:
 
 ```text
-DomainError
+ApplicationError
   EmptyValue { type_name }
   InvalidName { type_name, value, reason }
   InvalidPath { type_name, value, reason }
@@ -545,6 +544,8 @@ DomainError
   DuplicateColumn { column_name }
   UnknownColumn { column_name }
   IncompatibleColumnType { column_name, expected, actual }
+DomainError
+  ConnectionTimeout
 ```
 
 The application layer returns `anyhow::Result` for the initial MVP. This keeps
@@ -555,7 +556,7 @@ The infrastructure port traits also return `anyhow::Result` for the initial
 MVP.
 
 The Flight/server layer converts failures to RPC errors. It should inspect the
-error chain for `DomainError`. Domain errors caused by user input or user-owned
+error chain for `ApplicationError`. Application errors caused by user input or user-owned
 schema/query/import data are returned as `invalid_argument`. Errors that are not
 user-actionable, or that do not contain a known user-input `DomainError`, are
 returned as `internal`.

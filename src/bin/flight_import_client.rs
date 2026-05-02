@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
 use arrow::array::{Int32Array, StringArray, TimestampMicrosecondArray};
-use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
+use arrow::datatypes::{ArrowNativeType, DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use arrow_flight::FlightDescriptor;
 use arrow_flight::encode::FlightDataEncoderBuilder;
@@ -9,6 +7,8 @@ use arrow_flight::error::FlightError;
 use arrow_flight::flight_service_client::FlightServiceClient;
 use clap::Parser;
 use futures::{TryStreamExt, stream};
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::transport::Channel;
 
 const DEFAULT_ADDR: &str = "127.0.0.1:50051";
@@ -65,6 +65,8 @@ fn sample_batch() -> Result<RecordBatch, Box<dyn std::error::Error>> {
         ),
     ]));
 
+    let now = SystemTime::now();
+
     let batch = RecordBatch::try_new(
         schema,
         vec![
@@ -75,7 +77,11 @@ fn sample_batch() -> Result<RecordBatch, Box<dyn std::error::Error>> {
             Arc::new(TimestampMicrosecondArray::from(vec![
                 1_777_523_200_000_000,
                 1_777_526_800_000_000,
-                1_777_530_400_000_000,
+                now.duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_micros()
+                    .to_i64()
+                    .unwrap(),
             ])),
         ],
     )?;

@@ -1,9 +1,10 @@
-use arrow::record_batch::RecordBatch;
-use arrow::util::pretty::pretty_format_batches;
 use arrow_flight::decode::FlightRecordBatchStream;
 use arrow_flight::{FlightData, FlightDescriptor};
 use futures::{StreamExt, TryStreamExt, stream};
 use tonic::{Status, Streaming};
+
+use crate::application::import::error::ImportError;
+use crate::application::import::service::ImportService;
 
 pub async fn handle_do_put(mut stream: Streaming<FlightData>) -> Result<(), Status> {
     let first = stream.message().await?.ok_or_else(|| {
@@ -15,12 +16,18 @@ pub async fn handle_do_put(mut stream: Streaming<FlightData>) -> Result<(), Stat
         stream::once(async move { Ok(first) }).chain(stream.map_err(Into::into));
     let mut record_batches = FlightRecordBatchStream::new_from_flight_data(flight_data_stream);
 
+    let mut batches = Vec::new();
     while let Some(batch) = record_batches.next().await {
         let batch = batch.map_err(|error| {
             Status::invalid_argument(format!("failed to decode Arrow Flight data: {error}"))
         })?;
-        print_record_batch(&table_name, &batch)?;
+        batches.push(batch);
     }
+
+    let service = ImportService;
+    service
+        .import(&table_name, batches)
+        .map_err(import_error_to_status)?;
 
     Ok(())
 }
@@ -38,14 +45,11 @@ fn parse_import_descriptor(descriptor: Option<&FlightDescriptor>) -> Result<Stri
     }
 }
 
-fn print_record_batch(table_name: &str, batch: &RecordBatch) -> Result<(), Status> {
-    println!("import table={table_name}");
-    println!("schema={:?}", batch.schema());
-    println!("rows={}", batch.num_rows());
+fn import_error_to_status(error: ImportError) -> Status {
+    if let Some(message) = error.user_message() {
+        return Status::invalid_argument(message);
+    }
 
-    let formatted = pretty_format_batches(std::slice::from_ref(batch))
-        .map_err(|error| Status::internal(format!("failed to format RecordBatch: {error}")))?;
-    println!("{formatted}");
-
-    Ok(())
+    eprintln!("failed to transform import RecordBatch: {error}");
+    Status::internal("failed to transform import RecordBatch")
 }
