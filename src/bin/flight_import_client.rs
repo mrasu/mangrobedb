@@ -58,6 +58,7 @@ fn sample_batch() -> Result<RecordBatch, Box<dyn std::error::Error>> {
         Field::new("stream_id", DataType::Int32, false),
         Field::new("message", DataType::Utf8, false),
         Field::new("user", DataType::Utf8, false),
+        Field::new("new_user", DataType::Utf8, false),
         Field::new(
             "posted_at",
             DataType::Timestamp(TimeUnit::Microsecond, None),
@@ -74,6 +75,7 @@ fn sample_batch() -> Result<RecordBatch, Box<dyn std::error::Error>> {
             Arc::new(Int32Array::from(vec![0, 0, 0])),
             Arc::new(StringArray::from(vec!["hello", "flight", "mangrobe"])),
             Arc::new(StringArray::from(vec!["foo", "bar", "foo"])),
+            Arc::new(StringArray::from(vec!["foo1", "bar1", "foo1"])),
             Arc::new(TimestampMicrosecondArray::from(vec![
                 1_777_523_200_000_000,
                 1_777_526_800_000_000,

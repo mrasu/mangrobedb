@@ -1,6 +1,9 @@
 use arrow::error::ArrowError;
 use thiserror::Error;
 
+use crate::domain::repository::TableRepositoryError;
+use crate::domain::table_schema::TableSchemaError;
+
 #[derive(Debug, Error)]
 pub enum ImportError {
     #[error("{0}")]
@@ -58,5 +61,25 @@ impl From<ImportUserError> for ImportError {
 impl From<ArrowError> for ImportError {
     fn from(value: ArrowError) -> Self {
         anyhow::Error::new(value).into()
+    }
+}
+
+impl From<TableRepositoryError> for ImportError {
+    fn from(value: TableRepositoryError) -> Self {
+        match value {
+            TableRepositoryError::TableNotFound { table_name } => {
+                ImportUserError::InvalidTable { table_name }.into()
+            }
+            TableRepositoryError::Internal(error) => Self::Internal(error),
+        }
+    }
+}
+
+impl From<TableSchemaError> for ImportError {
+    fn from(value: TableSchemaError) -> Self {
+        ImportUserError::ValidationError {
+            message: value.to_string(),
+        }
+        .into()
     }
 }

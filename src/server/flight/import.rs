@@ -4,9 +4,12 @@ use futures::{StreamExt, TryStreamExt, stream};
 use tonic::{Status, Streaming};
 
 use crate::application::import::error::ImportError;
-use crate::application::import::service::ImportService;
+use crate::server::flight::server::SharedImportService;
 
-pub async fn handle_do_put(mut stream: Streaming<FlightData>) -> Result<(), Status> {
+pub async fn handle_do_put(
+    import_service: &SharedImportService,
+    mut stream: Streaming<FlightData>,
+) -> Result<(), Status> {
     let first = stream.message().await?.ok_or_else(|| {
         Status::invalid_argument("DoPut stream must include a FlightData message")
     })?;
@@ -24,8 +27,7 @@ pub async fn handle_do_put(mut stream: Streaming<FlightData>) -> Result<(), Stat
         batches.push(batch);
     }
 
-    let service = ImportService;
-    service
+    import_service
         .import(&table_name, batches)
         .map_err(import_error_to_status)?;
 

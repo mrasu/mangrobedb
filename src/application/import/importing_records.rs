@@ -1,26 +1,36 @@
 use crate::application::import::error::{ImportError, ImportUserError};
 use crate::application::import::validate::validate_schema;
+use crate::domain::repository::TableRepository;
 use crate::domain::table_mapping::{MappingStrategy, TableMapping};
 use crate::domain::table_records::TableRecords;
 use crate::domain::table_schema::TableSchema;
 use arrow::array::{Array, Int32Array, TimestampMicrosecondArray};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef, TimeUnit};
 use arrow::record_batch::RecordBatch;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
-pub struct ImportingRecords {
+pub struct Validated;
+
+pub struct MangrobeSchemaUpdated;
+
+pub struct ImportingRecords<State> {
     schema: TableSchema,
     record_batches: Vec<RecordBatch>,
+    _state: PhantomData<State>,
 }
 
-impl ImportingRecords {
+impl<State> ImportingRecords<State> {
     fn new(schema: TableSchema, record_batches: Vec<RecordBatch>) -> Self {
         Self {
             schema,
             record_batches,
+            _state: PhantomData,
         }
     }
+}
 
+impl ImportingRecords<Validated> {
     pub fn try_new(
         table_schema: TableSchema,
         record_batches: Vec<RecordBatch>,
@@ -41,6 +51,28 @@ impl ImportingRecords {
         Ok(Self::new(table_schema, record_batches))
     }
 
+    pub fn update_mangrobe_schema_if_required<R: TableRepository>(
+        self,
+        repository: &R,
+    ) -> Result<ImportingRecords<MangrobeSchemaUpdated>, ImportError> {
+        let schema = self
+            .record_batches
+            .first()
+            .expect("validated importing records must have at least one batch")
+            .schema();
+        let result = self
+            .schema
+            .add_missing_public_columns_if_required(&schema)?;
+
+        if result.schema_changed {
+            repository.update_table_schema(&result.schema.name, result.schema.clone())?;
+        }
+
+        Ok(ImportingRecords::new(result.schema, self.record_batches))
+    }
+}
+
+impl ImportingRecords<MangrobeSchemaUpdated> {
     pub fn to_table_records(&self) -> Result<TableRecords, ImportError> {
         let records = self
             .record_batches

@@ -43,6 +43,10 @@ impl TableMapping {
     pub fn dst_column_ref(&self) -> &InternalColumnDefinition {
         &self.dst_column
     }
+
+    pub fn strategy(&self) -> &MappingStrategy {
+        &self.strategy
+    }
 }
 
 fn required_field(schema: &Schema, name: &str) -> Result<(), TableSchemaError> {

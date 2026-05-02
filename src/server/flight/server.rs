@@ -1,6 +1,9 @@
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::Arc;
 
+use crate::application::import::service::ImportService;
+use crate::infrastructure::catalog::mock::MockTableRepository;
 use arrow_flight::flight_service_server::{FlightService, FlightServiceServer};
 use arrow_flight::{
     Action, ActionType, Criteria, Empty, FlightData, FlightDescriptor, FlightInfo,
@@ -14,14 +17,37 @@ use super::import;
 
 type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
-#[derive(Debug, Default)]
-pub struct MangrobeFlightService;
+pub type SharedImportService = Arc<ImportService<Arc<MockTableRepository>>>;
 
-pub async fn serve(addr: SocketAddr) -> Result<(), tonic::transport::Error> {
+#[derive(Debug)]
+pub struct MangrobeFlightService {
+    import_service: SharedImportService,
+}
+
+impl MangrobeFlightService {
+    pub fn new(import_service: SharedImportService) -> Self {
+        Self { import_service }
+    }
+}
+
+pub async fn serve(addr: SocketAddr) -> Result<(), anyhow::Error> {
+    let table_repository = Arc::new(MockTableRepository::load_default()?);
+    let import_service = Arc::new(ImportService::new(Arc::clone(&table_repository)));
+
     Server::builder()
-        .add_service(FlightServiceServer::new(MangrobeFlightService))
-        .serve(addr)
-        .await
+        .add_service(FlightServiceServer::new(MangrobeFlightService::new(
+            import_service,
+        )))
+        .serve_with_shutdown(addr, async {
+            if let Err(error) = tokio::signal::ctrl_c().await {
+                eprintln!("failed to listen for ctrl-c: {error}");
+            }
+        })
+        .await?;
+
+    table_repository.save_current_state()?;
+
+    Ok(())
 }
 
 #[tonic::async_trait]
@@ -78,7 +104,7 @@ impl FlightService for MangrobeFlightService {
         &self,
         request: Request<Streaming<FlightData>>,
     ) -> Result<Response<Self::DoPutStream>, Status> {
-        import::handle_do_put(request.into_inner()).await?;
+        import::handle_do_put(&self.import_service, request.into_inner()).await?;
         Ok(Response::new(Box::pin(stream::empty())))
     }
 

@@ -15,8 +15,6 @@ pub enum TableSchemaError {
         expected: String,
         actual: String,
     },
-    #[error("not implemented. message: {message}")]
-    NotImplemented { message: String },
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +42,49 @@ pub struct ColumnDefinition<T> {
 pub type InternalColumnDefinition = ColumnDefinition<Internal>;
 pub type PublicColumnDefinition = ColumnDefinition<Public>;
 
+pub struct AddMissingPublicColumnsResult {
+    pub schema: TableSchema,
+    pub schema_changed: bool,
+}
+
 impl TableSchema {
+    pub fn new(
+        name: String,
+        public_columns: Vec<PublicColumnDefinition>,
+        stream_id_mapping: TableMapping,
+        partition_time_mapping: TableMapping,
+    ) -> Self {
+        Self {
+            name,
+            public_columns,
+            stream_id_mapping,
+            partition_time_mapping,
+        }
+    }
+
+    pub fn add_missing_public_columns_if_required(
+        &self,
+        arrow_schema: &Schema,
+    ) -> Result<AddMissingPublicColumnsResult, TableSchemaError> {
+        let mut updated_schema = self.clone();
+        let mut schema_changed = false;
+
+        for field in arrow_schema.fields() {
+            if updated_schema.public_column(field.name()).is_none() {
+                updated_schema.public_columns.push(PublicColumnDefinition::new(
+                    field.name(),
+                    field.data_type().clone(),
+                ));
+                schema_changed = true;
+            }
+        }
+
+        Ok(AddMissingPublicColumnsResult {
+            schema: updated_schema,
+            schema_changed,
+        })
+    }
+
     pub fn validate_columns(&self, arrow_schema: &Schema) -> Result<(), TableSchemaError> {
         self.stream_id_mapping.validate_schema(arrow_schema)?;
         self.partition_time_mapping.validate_schema(arrow_schema)?;
@@ -61,10 +101,7 @@ impl TableSchema {
             return column.validate_compatible(field);
         }
 
-        // TODO: add columns
-        Err(TableSchemaError::NotImplemented {
-            message: "adding columns dynamically".to_owned(),
-        })
+        Ok(())
     }
 
     fn public_column(&self, name: &str) -> Option<&PublicColumnDefinition> {
@@ -81,12 +118,20 @@ impl TableSchema {
         &self.partition_time_mapping
     }
 
+    pub fn public_columns(&self) -> &[PublicColumnDefinition] {
+        &self.public_columns
+    }
+
     pub fn is_acceptable_column_name_for_public(name: &str) -> bool {
         !name.starts_with(INTERNAL_COLUMN_PREFIX)
     }
 }
 
 impl<T> ColumnDefinition<T> {
+    pub fn data_type(&self) -> &DataType {
+        &self.data_type
+    }
+
     fn validate_compatible(&self, field: &Field) -> Result<(), TableSchemaError> {
         if self.is_compatible(field.data_type()) {
             return Ok(());
@@ -108,7 +153,7 @@ impl<T> ColumnDefinition<T> {
 }
 
 impl<T> ColumnDefinition<T> {
-    fn new(name: &str, data_type: DataType) -> Self {
+    pub fn new(name: &str, data_type: DataType) -> Self {
         Self {
             name: name.to_string(),
             data_type,
@@ -131,9 +176,9 @@ pub const DUMMY_TABLE: &str = "dummy_table";
 
 // TODO: remove dummy schema
 pub fn initial_dummy_table_schema() -> TableSchema {
-    TableSchema {
-        name: DUMMY_TABLE.to_string(),
-        public_columns: vec![
+    TableSchema::new(
+        DUMMY_TABLE.to_string(),
+        vec![
             PublicColumnDefinition::new("id", DataType::Int32),
             PublicColumnDefinition::new("stream_id", DataType::Int32),
             PublicColumnDefinition::new("message", DataType::Utf8),
@@ -143,13 +188,12 @@ pub fn initial_dummy_table_schema() -> TableSchema {
                 DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
             ),
         ],
-
-        stream_id_mapping: TableMapping::new(
+        TableMapping::new(
             PublicColumnDefinition::new("stream_id", DataType::Int32),
             InternalColumnDefinition::new("__mangrobe__stream_id", DataType::Int32),
             MappingStrategy::Copy,
         ),
-        partition_time_mapping: TableMapping::new(
+        TableMapping::new(
             ColumnDefinition::new(
                 "posted_at",
                 DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
@@ -160,5 +204,5 @@ pub fn initial_dummy_table_schema() -> TableSchema {
             ),
             MappingStrategy::ToHour,
         ),
-    }
+    )
 }
