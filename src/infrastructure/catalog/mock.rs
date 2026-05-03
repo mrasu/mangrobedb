@@ -54,14 +54,16 @@ impl MockCatalogPort {
     fn save(&self, state: &MockState) -> anyhow::Result<()> {
         debug!(state_path = %self.state_path.display(), "saving mock catalog port state");
         if let Some(parent) = self.state_path.parent() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create mock state dir: {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| {
+                format!("failed to create mock state dir: {}", parent.display())
+            })?;
         }
 
         let json = serde_json::to_string_pretty(&PersistedState::try_from_state(state)?)
             .context("failed to serialize mock state")?;
-        fs::write(&self.state_path, json)
-            .with_context(|| format!("failed to write mock state: {}", self.state_path.display()))?;
+        fs::write(&self.state_path, json).with_context(|| {
+            format!("failed to write mock state: {}", self.state_path.display())
+        })?;
         Ok(())
     }
 
@@ -104,11 +106,13 @@ impl CatalogPort for MockCatalogPort {
             .lock()
             .map_err(|_| anyhow!("mock catalog port state lock is poisoned"))?;
 
-        let table = state.tables.get_mut(table_name).ok_or_else(|| {
-            CatalogPortError::TableNotFound {
-                table_name: table_name.to_string(),
-            }
-        })?;
+        let table =
+            state
+                .tables
+                .get_mut(table_name)
+                .ok_or_else(|| CatalogPortError::TableNotFound {
+                    table_name: table_name.to_string(),
+                })?;
 
         table.schema = schema;
         self.save(&state)?;

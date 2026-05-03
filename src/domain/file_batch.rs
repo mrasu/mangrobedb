@@ -1,3 +1,4 @@
+use crate::domain::statistics::FileStatistics;
 use crate::domain::table_schema::TableSchema;
 use anyhow::anyhow;
 use arrow::record_batch::RecordBatch;
@@ -36,6 +37,7 @@ impl FileBatch {
             println!("file={}", file_record.name);
             println!("schema={:?}", file_record.batch_record.schema());
             println!("rows={}", file_record.batch_record.num_rows());
+            println!("statistics={:?}", file_record.calculate_statistics());
 
             let formatted = pretty_format_batches(std::slice::from_ref(&file_record.batch_record))
                 .map_err(|error| anyhow!(error))?;
@@ -43,6 +45,10 @@ impl FileBatch {
         }
 
         Ok(())
+    }
+
+    pub fn file_records(&self) -> &[VortexFileRecord] {
+        &self.file_records
     }
 }
 
@@ -64,6 +70,14 @@ impl VortexFileRecord {
             "stream_id={}/partition_time={}/{}",
             self.flush_unit.stream_id, partition_time, self.name
         ))
+    }
+
+    pub fn calculate_statistics(&self) -> FileStatistics {
+        FileStatistics::calculate(&self.batch_record)
+    }
+
+    pub fn batch_record(&self) -> &RecordBatch {
+        &self.batch_record
     }
 }
 

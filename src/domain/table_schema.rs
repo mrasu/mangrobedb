@@ -74,10 +74,12 @@ impl TableSchema {
 
         for field in arrow_schema.fields() {
             if updated_schema.public_column(field.name()).is_none() {
-                updated_schema.public_columns.push(PublicColumnDefinition::new(
-                    field.name(),
-                    field.data_type().clone(),
-                ));
+                updated_schema
+                    .public_columns
+                    .push(PublicColumnDefinition::new(
+                        field.name(),
+                        field.data_type().clone(),
+                    ));
                 schema_changed = true;
             }
         }

@@ -1,7 +1,5 @@
 use crate::domain::table_mapping::{MappingStrategy, TableMapping};
-use crate::domain::table_schema::{
-    InternalColumnDefinition, PublicColumnDefinition, TableSchema,
-};
+use crate::domain::table_schema::{InternalColumnDefinition, PublicColumnDefinition, TableSchema};
 use crate::infrastructure::catalog::mock::{MockState, MockTable};
 use anyhow::anyhow;
 use arrow::datatypes::{DataType, TimeUnit};
@@ -125,7 +123,9 @@ impl PersistedTableMapping {
     fn try_from_table_mapping(mapping: &TableMapping) -> anyhow::Result<Self> {
         Ok(Self {
             src_column: PersistedPublicColumn::try_from_public_column(mapping.src_column_ref())?,
-            dst_column: PersistedInternalColumn::try_from_internal_column(mapping.dst_column_ref())?,
+            dst_column: PersistedInternalColumn::try_from_internal_column(
+                mapping.dst_column_ref(),
+            )?,
             strategy: PersistedMappingStrategy::from_mapping_strategy(mapping.strategy()),
         })
     }
