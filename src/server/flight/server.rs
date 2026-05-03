@@ -2,9 +2,10 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use super::import;
+use super::{import, query};
 use crate::app_config::AppConfig;
 use crate::application::import::service::ImportService;
+use crate::application::query::service::QueryService;
 use crate::domain::common_ports::CommonPorts;
 use crate::infrastructure::catalog::mock::MockCatalogPort;
 use crate::infrastructure::object_store::S3ObjectStorePort;
@@ -21,15 +22,20 @@ use tonic::{Request, Response, Status, Streaming};
 type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
 pub type SharedImportService = Arc<ImportService<Arc<MockCatalogPort>, Arc<S3ObjectStorePort>>>;
+pub type SharedQueryService = Arc<QueryService>;
 
 #[derive(Debug)]
 pub struct MangrobeFlightService {
     import_service: SharedImportService,
+    query_service: SharedQueryService,
 }
 
 impl MangrobeFlightService {
-    pub fn new(import_service: SharedImportService) -> Self {
-        Self { import_service }
+    pub fn new(import_service: SharedImportService, query_service: SharedQueryService) -> Self {
+        Self {
+            import_service,
+            query_service,
+        }
     }
 }
 
@@ -37,15 +43,18 @@ pub async fn serve(addr: SocketAddr, app_config: &AppConfig) -> Result<(), anyho
     let catalog_port = Arc::new(MockCatalogPort::load_default()?);
     let container = Arc::new(CommonPorts::new(Arc::new(RandomUuid)));
     let object_store_port = Arc::new(S3ObjectStorePort::from_env(&app_config.s3.bucket)?);
+
     let import_service = Arc::new(ImportService::new(
         Arc::clone(&catalog_port),
         Arc::clone(&object_store_port),
         Arc::clone(&container),
     ));
+    let query_service = Arc::new(QueryService::new());
 
     Server::builder()
         .add_service(FlightServiceServer::new(MangrobeFlightService::new(
             import_service,
+            query_service,
         )))
         .serve_with_shutdown(addr, async {
             if let Err(error) = tokio::signal::ctrl_c().await {
@@ -102,9 +111,10 @@ impl FlightService for MangrobeFlightService {
 
     async fn do_get(
         &self,
-        _request: Request<Ticket>,
+        request: Request<Ticket>,
     ) -> Result<Response<Self::DoGetStream>, Status> {
-        Err(Status::unimplemented("do_get is not implemented"))
+        let output = query::handle_do_get(&self.query_service, request.into_inner()).await?;
+        Ok(Response::new(output))
     }
 
     type DoPutStream = ResponseStream<PutResult>;
