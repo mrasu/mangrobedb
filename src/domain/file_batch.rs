@@ -2,7 +2,6 @@ use crate::domain::statistics::FileStatistics;
 use crate::domain::table_schema::TableSchema;
 use anyhow::anyhow;
 use arrow::record_batch::RecordBatch;
-use arrow::util::pretty::pretty_format_batches;
 use chrono::{DateTime, Utc};
 
 pub struct FileBatch {
@@ -31,20 +30,8 @@ impl FileBatch {
         }
     }
 
-    pub fn print_record_batch(&self) -> Result<(), anyhow::Error> {
-        for file_record in &self.file_records {
-            println!("import table={}", self.schema.name);
-            println!("file={}", file_record.name);
-            println!("schema={:?}", file_record.batch_record.schema());
-            println!("rows={}", file_record.batch_record.num_rows());
-            println!("statistics={:?}", file_record.calculate_statistics());
-
-            let formatted = pretty_format_batches(std::slice::from_ref(&file_record.batch_record))
-                .map_err(|error| anyhow!(error))?;
-            println!("{formatted}");
-        }
-
-        Ok(())
+    pub fn schema(&self) -> &TableSchema {
+        &self.schema
     }
 
     pub fn file_records(&self) -> &[VortexFileRecord] {
@@ -74,6 +61,14 @@ impl VortexFileRecord {
 
     pub fn calculate_statistics(&self) -> FileStatistics {
         FileStatistics::calculate(&self.batch_record)
+    }
+
+    pub fn stream_id(&self) -> i32 {
+        self.flush_unit.stream_id
+    }
+
+    pub fn partition_time_micros(&self) -> i64 {
+        self.flush_unit.partition_time
     }
 
     pub fn batch_record(&self) -> &RecordBatch {

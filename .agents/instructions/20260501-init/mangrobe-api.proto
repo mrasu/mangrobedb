@@ -143,6 +143,8 @@ message FileInfoResponse {
   int64 size = 3;
   repeated FileColumnStatistics column_statistics = 4;
   FileMetadata file_metadata = 5;
+
+  int64 row_count = 6;
 }
 
 message FileColumnStatistics {

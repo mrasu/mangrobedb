@@ -1,6 +1,7 @@
+use crate::domain::statistics::{ColumnStatistics, FileStatistics, StatisticValue};
 use crate::domain::table_mapping::{MappingStrategy, TableMapping};
 use crate::domain::table_schema::{InternalColumnDefinition, PublicColumnDefinition, TableSchema};
-use crate::infrastructure::catalog::mock::{MockState, MockTable};
+use crate::infrastructure::catalog::mock::{MockCatalogFile, MockState, MockTable};
 use anyhow::anyhow;
 use arrow::datatypes::{DataType, TimeUnit};
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,8 @@ struct PersistedTable {
     public_columns: Vec<PersistedPublicColumn>,
     stream_id_mapping: PersistedTableMapping,
     partition_time_mapping: PersistedTableMapping,
+    #[serde(default)]
+    files: Vec<PersistedCatalogFile>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,6 +45,36 @@ struct PersistedInternalColumn {
 enum PersistedMappingStrategy {
     Copy,
     ToHour,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PersistedCatalogFile {
+    stream_id: i32,
+    partition_time: i64,
+    path: String,
+    size: u64,
+    column_statistics: PersistedFileStatistics,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PersistedFileStatistics {
+    row_count: usize,
+    columns: Vec<PersistedColumnStatistics>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PersistedColumnStatistics {
+    column_name: String,
+    min: PersistedStatisticValue,
+    max: PersistedStatisticValue,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+enum PersistedStatisticValue {
+    Int32(i32),
+    Int64(i64),
+    Float64(f64),
+    TimestampMicros(i64),
 }
 
 impl PersistedState {
@@ -86,6 +119,11 @@ impl PersistedTable {
                 stream_id_mapping,
                 partition_time_mapping,
             ),
+            files: self
+                .files
+                .into_iter()
+                .map(PersistedCatalogFile::into_catalog_file)
+                .collect(),
         })
     }
 
@@ -107,7 +145,98 @@ impl PersistedTable {
             partition_time_mapping: PersistedTableMapping::try_from_table_mapping(
                 table.schema.partition_time_mapping(),
             )?,
+            files: table
+                .files
+                .iter()
+                .map(PersistedCatalogFile::from_catalog_file)
+                .collect(),
         })
+    }
+}
+
+impl PersistedCatalogFile {
+    fn into_catalog_file(self) -> MockCatalogFile {
+        MockCatalogFile {
+            stream_id: self.stream_id,
+            partition_time: self.partition_time,
+            path: self.path,
+            size: self.size,
+            column_statistics: self.column_statistics.into_file_statistics(),
+        }
+    }
+
+    fn from_catalog_file(file: &MockCatalogFile) -> Self {
+        Self {
+            stream_id: file.stream_id,
+            partition_time: file.partition_time,
+            path: file.path.clone(),
+            size: file.size,
+            column_statistics: PersistedFileStatistics::from_file_statistics(
+                &file.column_statistics,
+            ),
+        }
+    }
+}
+
+impl PersistedFileStatistics {
+    fn into_file_statistics(self) -> FileStatistics {
+        FileStatistics {
+            row_count: self.row_count,
+            columns: self
+                .columns
+                .into_iter()
+                .map(PersistedColumnStatistics::into_column_statistics)
+                .collect(),
+        }
+    }
+
+    fn from_file_statistics(value: &FileStatistics) -> Self {
+        Self {
+            row_count: value.row_count,
+            columns: value
+                .columns
+                .iter()
+                .map(PersistedColumnStatistics::from_column_statistics)
+                .collect(),
+        }
+    }
+}
+
+impl PersistedColumnStatistics {
+    fn into_column_statistics(self) -> ColumnStatistics {
+        ColumnStatistics {
+            column_name: self.column_name,
+            min: self.min.into_statistic_value(),
+            max: self.max.into_statistic_value(),
+        }
+    }
+
+    fn from_column_statistics(value: &ColumnStatistics) -> Self {
+        Self {
+            column_name: value.column_name.clone(),
+            min: PersistedStatisticValue::from_statistic_value(&value.min),
+            max: PersistedStatisticValue::from_statistic_value(&value.max),
+        }
+    }
+}
+
+impl PersistedStatisticValue {
+    fn into_statistic_value(self) -> StatisticValue {
+        match self {
+            Self::Int32(value) => StatisticValue::Int32(value),
+            Self::Int64(value) => StatisticValue::Int64(value),
+            Self::Float64(value) => StatisticValue::Float64(value),
+            Self::TimestampMicros(value) => StatisticValue::TimestampMicros(value),
+        }
+    }
+
+    fn from_statistic_value(value: &StatisticValue) -> Self {
+        match value {
+            StatisticValue::Int32(v) => Self::Int32(*v),
+            StatisticValue::Int64(v) => Self::Int64(*v),
+            StatisticValue::Float64(v) => Self::Float64(*v),
+            StatisticValue::TimestampMicros(v) => Self::TimestampMicros(*v),
+        }
     }
 }
 

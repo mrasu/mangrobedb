@@ -216,9 +216,6 @@ The initial implementation should use a DDD-oriented directory structure.
 
 ```text
 src/
-  di/
-    container.rs
-
   domain/
     table.rs
     schema.rs

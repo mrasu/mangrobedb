@@ -1,7 +1,7 @@
 use arrow::error::ArrowError;
 use thiserror::Error;
 
-use crate::domain::port::CatalogPortError;
+use crate::domain::port::catalog::CatalogPortError;
 use crate::domain::table_schema::TableSchemaError;
 
 #[derive(Debug, Error)]

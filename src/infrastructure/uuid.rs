@@ -1,4 +1,4 @@
-use crate::application::ports::UuidGeneratorPort;
+use crate::domain::port::uuid_generator::UuidGeneratorPort;
 use uuid::Uuid;
 
 #[derive(Debug)]

@@ -19,7 +19,7 @@ Before implementing a section, read the listed files and ask for explicit user d
 - [x] Mock mangrobe API: Validate/update mock state
 - [x] Split RecordBatch by flush unit, generate immutable file paths.
 - [x] Build statistics + Vortex writing: write each flush unit to a `NamedTempFile` and return numeric/timestamp min/max statistics, row count, and file size.
-- [ ] Build upload + `AddFiles`: upload written files, register table-relative paths and statistics.
+- [x] Build upload + `AddFiles`: upload written files, register table-relative paths and statistics.
 
 ## 2. Get Reader Working
 

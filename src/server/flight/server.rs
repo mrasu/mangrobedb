@@ -2,9 +2,12 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use super::import;
+use crate::app_config::AppConfig;
 use crate::application::import::service::ImportService;
-use crate::di::Container;
+use crate::domain::common_ports::CommonPorts;
 use crate::infrastructure::catalog::mock::MockCatalogPort;
+use crate::infrastructure::object_store::S3ObjectStorePort;
 use crate::infrastructure::uuid::RandomUuid;
 use arrow_flight::flight_service_server::{FlightService, FlightServiceServer};
 use arrow_flight::{
@@ -15,11 +18,9 @@ use futures::{Stream, stream};
 use tonic::transport::Server;
 use tonic::{Request, Response, Status, Streaming};
 
-use super::import;
-
 type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
-pub type SharedImportService = Arc<ImportService<Arc<MockCatalogPort>>>;
+pub type SharedImportService = Arc<ImportService<Arc<MockCatalogPort>, Arc<S3ObjectStorePort>>>;
 
 #[derive(Debug)]
 pub struct MangrobeFlightService {
@@ -32,11 +33,13 @@ impl MangrobeFlightService {
     }
 }
 
-pub async fn serve(addr: SocketAddr) -> Result<(), anyhow::Error> {
+pub async fn serve(addr: SocketAddr, app_config: &AppConfig) -> Result<(), anyhow::Error> {
     let catalog_port = Arc::new(MockCatalogPort::load_default()?);
-    let container = Arc::new(Container::new(Arc::new(RandomUuid)));
+    let container = Arc::new(CommonPorts::new(Arc::new(RandomUuid)));
+    let object_store_port = Arc::new(S3ObjectStorePort::from_env(&app_config.s3.bucket)?);
     let import_service = Arc::new(ImportService::new(
         Arc::clone(&catalog_port),
+        Arc::clone(&object_store_port),
         Arc::clone(&container),
     ));
 

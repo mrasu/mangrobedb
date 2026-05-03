@@ -1,8 +1,8 @@
 use crate::application::import::error::{ImportError, ImportUserError};
 use crate::application::import::validate::validate_schema;
-use crate::application::ports::UuidGeneratorPort;
 use crate::domain::file_batch::{FileBatch, FlushUnit, VortexFileRecord};
-use crate::domain::port::CatalogPort;
+use crate::domain::port::catalog::CatalogPort;
+use crate::domain::port::uuid_generator::UuidGeneratorPort;
 use crate::domain::table_mapping::{MappingStrategy, TableMapping};
 use crate::domain::table_schema::TableSchema;
 use anyhow::anyhow;

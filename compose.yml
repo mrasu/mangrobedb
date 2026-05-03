@@ -1,0 +1,16 @@
+services:
+  rustfs:
+    image: rustfs/rustfs:1.0.0-beta.1
+    ports:
+      - "9000:9000" # S3 API port
+      - "9001:9001" # Console port
+    environment:
+      - RUSTFS_CONSOLE_ENABLE=true
+      - RUSTFS_ACCESS_KEY=rustfsadmin
+      - RUSTFS_SECRET_KEY=rustfsadmin
+      - RUSTFS_LOG_LEVEL=info
+    volumes:
+      - rustfs_data:/data
+
+volumes:
+  rustfs_data:

@@ -1,12 +1,14 @@
+mod app_config;
 mod application;
-mod di;
 mod domain;
 mod infrastructure;
 mod server;
 mod util;
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
+use crate::app_config::AppConfig;
 use clap::Parser;
 use server::flight;
 use tracing_subscriber::EnvFilter;
@@ -17,6 +19,8 @@ const DEFAULT_ADDR: &str = "127.0.0.1:50051";
 struct Cli {
     #[arg(long, default_value = DEFAULT_ADDR)]
     addr: SocketAddr,
+    #[arg(long)]
+    config: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -26,9 +30,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let cli = Cli::parse();
+    let app_config = AppConfig::load(cli.config.as_deref())?;
 
     println!("mangrobe-db Flight server listening on {}", cli.addr);
-    flight::serve(cli.addr).await?;
+    flight::serve(cli.addr, &app_config).await?;
 
     Ok(())
 }

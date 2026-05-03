@@ -1,4 +1,5 @@
-use crate::domain::port::{CatalogPort, CatalogPortError};
+use crate::domain::port::catalog::{AddFile, AddFilesEntry, CatalogPort, CatalogPortError};
+use crate::domain::statistics::FileStatistics;
 use crate::domain::table_schema::{DUMMY_TABLE, TableSchema, initial_dummy_table_schema};
 use crate::infrastructure::catalog::persisted::PersistedState;
 use anyhow::{Context, anyhow};
@@ -25,6 +26,16 @@ pub(super) struct MockState {
 pub(super) struct MockTable {
     pub(super) name: String,
     pub(super) schema: TableSchema,
+    pub(super) files: Vec<MockCatalogFile>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct MockCatalogFile {
+    pub(super) stream_id: i32,
+    pub(super) partition_time: i64,
+    pub(super) path: String,
+    pub(super) size: u64,
+    pub(super) column_statistics: FileStatistics,
 }
 
 impl MockCatalogPort {
@@ -119,6 +130,60 @@ impl CatalogPort for MockCatalogPort {
 
         Ok(())
     }
+
+    fn add_files(
+        &self,
+        table_name: &str,
+        stream_id: i32,
+        entries: Vec<AddFilesEntry>,
+    ) -> Result<(), CatalogPortError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("mock catalog port state lock is poisoned"))?;
+
+        let table =
+            state
+                .tables
+                .get_mut(table_name)
+                .ok_or_else(|| CatalogPortError::TableNotFound {
+                    table_name: table_name.to_string(),
+                })?;
+
+        append_add_files(table, stream_id, entries);
+
+        self.save(&state)?;
+        Ok(())
+    }
+}
+
+fn append_add_files(table: &mut MockTable, stream_id: i32, entries: Vec<AddFilesEntry>) {
+    for entry in entries {
+        for file in entry.files {
+            table.files.push(build_mock_catalog_file(
+                stream_id,
+                entry.partition_time,
+                file,
+            ));
+        }
+    }
+
+    table.files.sort_by(|left, right| {
+        left.stream_id
+            .cmp(&right.stream_id)
+            .then(left.partition_time.cmp(&right.partition_time))
+            .then(left.path.cmp(&right.path))
+    });
+}
+
+fn build_mock_catalog_file(stream_id: i32, partition_time: i64, file: AddFile) -> MockCatalogFile {
+    MockCatalogFile {
+        stream_id,
+        partition_time,
+        path: file.path,
+        size: file.size,
+        column_statistics: file.column_statistics,
+    }
 }
 
 impl MockState {
@@ -126,6 +191,7 @@ impl MockState {
         let table = MockTable {
             name: DUMMY_TABLE.to_string(),
             schema: initial_dummy_table_schema(),
+            files: Vec::new(),
         };
         let mut tables = HashMap::new();
         tables.insert(table.name.clone(), table);

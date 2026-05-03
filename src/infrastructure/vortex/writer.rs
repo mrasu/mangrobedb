@@ -2,7 +2,6 @@ use std::fs::{self, File};
 
 use crate::domain::file_batch::VortexFileRecord;
 use crate::domain::statistics::FileStatistics;
-use anyhow::Context;
 use tempfile::NamedTempFile;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
