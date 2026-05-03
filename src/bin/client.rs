@@ -71,11 +71,13 @@ fn sample_batch() -> Result<RecordBatch, Box<dyn std::error::Error>> {
     let batch = RecordBatch::try_new(
         schema,
         vec![
-            Arc::new(Int32Array::from(vec![1, 2, 3])),
-            Arc::new(Int32Array::from(vec![0, 0, 0])),
-            Arc::new(StringArray::from(vec!["hello", "flight", "mangrobe"])),
-            Arc::new(StringArray::from(vec!["foo", "bar", "foo"])),
-            Arc::new(StringArray::from(vec!["foo1", "bar1", "foo1"])),
+            Arc::new(Int32Array::from(vec![1, 2, 3, 4])),
+            Arc::new(Int32Array::from(vec![0, 0, 0, 0])),
+            Arc::new(StringArray::from(vec![
+                "hello", "flight", "mangrobe", "client",
+            ])),
+            Arc::new(StringArray::from(vec!["foo", "bar", "foo", "bar"])),
+            Arc::new(StringArray::from(vec!["foo1", "bar1", "foo1", "bar1"])),
             Arc::new(TimestampMicrosecondArray::from(vec![
                 1_777_523_200_000_000,
                 1_777_526_800_000_000,
@@ -84,6 +86,7 @@ fn sample_batch() -> Result<RecordBatch, Box<dyn std::error::Error>> {
                     .as_micros()
                     .to_i64()
                     .unwrap(),
+                1_777_527_800_000_000,
             ])),
         ],
     )?;

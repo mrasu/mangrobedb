@@ -216,8 +216,10 @@ The initial implementation should use a DDD-oriented directory structure.
 
 ```text
 src/
+  di/
+    container.rs
+
   domain/
-    mod.rs
     table.rs
     schema.rs
     column.rs
@@ -227,43 +229,35 @@ src/
     statistics.rs
 
   application/
-    mod.rs
     import_service.rs
     query_service.rs
     flush_service.rs
     buffer.rs
     ports.rs
     datafusion/
-      mod.rs
       sql_validator.rs
       predicate.rs
       table_provider.rs
       execution.rs
 
   infrastructure/
-    mod.rs
     catalog/
-      mod.rs
       mock.rs
     object_store/
-      mod.rs
       s3.rs
       memory.rs
     vortex/
-      mod.rs
       reader.rs
       writer.rs
     clock.rs
+    uuid.rs
 
   server/
-    mod.rs
     flight/
-      mod.rs
       server.rs
       import.rs
       query.rs
     background/
-      mod.rs
       flusher.rs
 
   main.rs
@@ -382,19 +376,18 @@ the generated identifier embedded in the immutable object file path. It is not
 the mangrobe catalog-internal `file_id` returned by read APIs such as
 `GetCurrentState` or `GetFileInfo`.
 
-The initial writer uses UUID strings as the generated object file path
+The initial writer uses UUID values as the generated object file name
 component. UUID generation is owned by `UuidGeneratorPort` so tests can mock
-the external randomness dependency. `UuidGeneratorPort` only generates UUIDs;
-it does not create `FileId` values or file paths. The application layer converts
-the generated UUID string into `FileId` and passes it to domain file path
-construction.
+the external randomness dependency. `UuidGeneratorPort` only generates
+`uuid::Uuid` values; it does not create file names or file paths. The
+application layer formats the generated UUID as the Vortex file name.
 
-`domain/file.rs` owns file naming and path construction. It builds the
+`FileRecord` owns the file name and its `FlushUnit`. It builds the
 table-relative file path:
 
 ```text
-FilePath::for_partition(stream_id, partition_time, file_id)
-  -> stream_id={stream_id}/partition_time=YYYYMMDD_HHMMSS/{file_id}.vortex
+FileRecord::path()
+  -> stream_id={stream_id}/partition_time=YYYYMMDD_HHMMSS/{file_name}
 ```
 
 `ObjectStoragePrefix::join(FilePath)` produces the actual `ObjectKey` used by
@@ -471,8 +464,8 @@ The application layer owns use-case flow.
 FlushService
   -> take flush units from the import buffer
   -> generate a UUID through UuidGeneratorPort
-  -> convert the UUID string into a FileId
-  -> build a table-relative FilePath from domain/file.rs
+  -> format the UUID as an immutable Vortex file name
+  -> build a table-relative path from the file name and FlushUnit
   -> write a Vortex temporary file and compute statistics
   -> upload the temporary file to object storage using TableDefinition and FilePath
   -> register the table-relative FilePath and statistics in the catalog
@@ -524,7 +517,8 @@ awkward, the implementation can revisit this decision.
 perform I/O. `ClockPort` and `UuidGeneratorPort` are ordinary synchronous
 traits.
 
-Port methods return `anyhow::Result` in the initial implementation. Detailed
+Most port methods return `anyhow::Result` in the initial implementation.
+`UuidGeneratorPort` is infallible and returns `uuid::Uuid` directly. Detailed
 application-specific error types are intentionally deferred and will be refined
 later.
 
@@ -603,7 +597,8 @@ Domain value object tests should cover:
 - Empty names are rejected.
 - Valid names are accepted.
 - `__mangrobe__` prefix detection works for column names.
-- `FilePath::for_partition` builds the expected table-relative path.
+- `FileRecord::path` builds the expected table-relative path from the file name
+  and `FlushUnit`.
 - `ObjectStoragePrefix::join` builds the expected object key.
 
 Table schema tests should cover:
@@ -724,7 +719,7 @@ These details are intentionally not fixed yet:
 - `StreamId` is represented as `i64`.
 - `PartitionTime` is represented as `chrono::DateTime<Utc>`.
 - `FileId` accepts strings. UUID generation belongs behind `UuidGeneratorPort`;
-  file path construction remains domain logic.
+  `UuidGeneratorPort` returns `uuid::Uuid` directly.
 - File statistics preserve Arrow type information and use a domain-owned
   `StatisticsValue` enum for numeric and timestamp min/max values.
 - The reader uses a mangrobe-owned, catalog-aware DataFusion table provider and
@@ -734,7 +729,7 @@ These details are intentionally not fixed yet:
   I/O is needed; the initial design does not use `async_trait`.
 - `ClockPort` and `UuidGeneratorPort` are synchronous traits.
 - Initial port methods return `anyhow::Result` until the detailed error model is
-  decided.
+  decided, except infallible ports such as `UuidGeneratorPort`.
 - The domain layer defines `DomainError`, and domain `TryFrom` implementations
   return it.
 - Application services and infrastructure ports return `anyhow::Result` for the

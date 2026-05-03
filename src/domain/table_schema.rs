@@ -1,5 +1,8 @@
 use crate::domain::table_mapping::{MappingStrategy, TableMapping};
+use anyhow::anyhow;
+use arrow::array::{Int32Array, TimestampMicrosecondArray};
 use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
 use std::marker::PhantomData;
 use thiserror::Error;
 
@@ -124,6 +127,32 @@ impl TableSchema {
 
     pub fn is_acceptable_column_name_for_public(name: &str) -> bool {
         !name.starts_with(INTERNAL_COLUMN_PREFIX)
+    }
+
+    pub fn stream_id_array<'a>(
+        &self,
+        record: &'a RecordBatch,
+    ) -> Result<&'a Int32Array, anyhow::Error> {
+        let column_name = &self.stream_id_mapping.dst_column_ref().name;
+        let index = record.schema().index_of(column_name)?;
+        record
+            .column(index)
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .ok_or_else(|| anyhow!("internal stream id column must be Int32"))
+    }
+
+    pub fn partition_time_array<'a>(
+        &self,
+        record: &'a RecordBatch,
+    ) -> Result<&'a TimestampMicrosecondArray, anyhow::Error> {
+        let column_name = &self.partition_time_mapping.dst_column_ref().name;
+        let index = record.schema().index_of(column_name)?;
+        record
+            .column(index)
+            .as_any()
+            .downcast_ref::<TimestampMicrosecondArray>()
+            .ok_or_else(|| anyhow!("internal partition time column must be TimestampMicrosecond"))
     }
 }
 

@@ -3,7 +3,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::application::import::service::ImportService;
+use crate::di::Container;
 use crate::infrastructure::catalog::mock::MockCatalogPort;
+use crate::infrastructure::uuid::RandomUuid;
 use arrow_flight::flight_service_server::{FlightService, FlightServiceServer};
 use arrow_flight::{
     Action, ActionType, Criteria, Empty, FlightData, FlightDescriptor, FlightInfo,
@@ -32,7 +34,11 @@ impl MangrobeFlightService {
 
 pub async fn serve(addr: SocketAddr) -> Result<(), anyhow::Error> {
     let catalog_port = Arc::new(MockCatalogPort::load_default()?);
-    let import_service = Arc::new(ImportService::new(Arc::clone(&catalog_port)));
+    let container = Arc::new(Container::new(Arc::new(RandomUuid)));
+    let import_service = Arc::new(ImportService::new(
+        Arc::clone(&catalog_port),
+        Arc::clone(&container),
+    ));
 
     Server::builder()
         .add_service(FlightServiceServer::new(MangrobeFlightService::new(

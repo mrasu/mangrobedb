@@ -1,12 +1,16 @@
 use crate::application::import::error::{ImportError, ImportUserError};
 use crate::application::import::validate::validate_schema;
+use crate::application::ports::UuidGeneratorPort;
+use crate::domain::file_batch::{FileBatch, FlushUnit, VortexFileRecord};
 use crate::domain::port::CatalogPort;
 use crate::domain::table_mapping::{MappingStrategy, TableMapping};
-use crate::domain::table_records::TableRecords;
 use crate::domain::table_schema::TableSchema;
-use arrow::array::{Array, Int32Array, TimestampMicrosecondArray};
+use anyhow::anyhow;
+use arrow::array::{Array, BooleanArray, Int32Array, TimestampMicrosecondArray};
+use arrow::compute::{concat_batches, filter_record_batch};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef, TimeUnit};
 use arrow::record_batch::RecordBatch;
+use std::collections::{BTreeMap, BTreeSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -73,14 +77,19 @@ impl ImportingRecords<Validated> {
 }
 
 impl ImportingRecords<MangrobeSchemaUpdated> {
-    pub fn to_table_records(&self) -> Result<TableRecords, ImportError> {
+    pub fn to_file_batch(
+        &self,
+        uuid_generator: &dyn UuidGeneratorPort,
+    ) -> Result<FileBatch, ImportError> {
         let records = self
             .record_batches
             .iter()
             .map(|record| self.add_internal_columns(record))
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(TableRecords::new(self.schema.clone(), records))
+        let file_records = self.split_by_flush_unit(records, uuid_generator)?;
+
+        Ok(FileBatch::new(self.schema.clone(), file_records))
     }
 
     fn add_internal_columns(&self, batch: &RecordBatch) -> Result<RecordBatch, ImportError> {
@@ -214,5 +223,81 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
                 expected: "Timestamp".to_string(),
                 actual: format!("{:?}", array.data_type()),
             })?)
+    }
+
+    fn split_by_flush_unit(
+        &self,
+        records: Vec<RecordBatch>,
+        uuid_generator: &dyn UuidGeneratorPort,
+    ) -> Result<Vec<VortexFileRecord>, ImportError> {
+        let mut records_by_flush_unit: BTreeMap<FlushUnit, Vec<RecordBatch>> = BTreeMap::new();
+
+        for record in records {
+            let stream_ids = self.schema.stream_id_array(&record)?;
+            let partition_times = self.schema.partition_time_array(&record)?;
+
+            for flush_unit in self.flush_units_in_record(stream_ids, partition_times)? {
+                let filter = BooleanArray::from_iter((0..record.num_rows()).map(|row_index| {
+                    flush_unit.matches(
+                        stream_ids.value(row_index),
+                        partition_times.value(row_index),
+                    )
+                }));
+                let filtered_record = filter_record_batch(&record, &filter)?;
+
+                records_by_flush_unit
+                    .entry(flush_unit)
+                    .or_default()
+                    .push(filtered_record);
+            }
+        }
+
+        let file_records = records_by_flush_unit
+            .into_iter()
+            .map(|(flush_unit, records)| {
+                self.create_file_record(flush_unit, records, uuid_generator)
+            })
+            .collect::<Result<Vec<_>, ImportError>>()?;
+
+        Ok(file_records)
+    }
+
+    fn flush_units_in_record(
+        &self,
+        stream_ids: &Int32Array,
+        partition_times: &TimestampMicrosecondArray,
+    ) -> Result<Vec<FlushUnit>, ImportError> {
+        let mut flush_units = BTreeSet::new();
+
+        for row_index in 0..stream_ids.len() {
+            if stream_ids.is_null(row_index) {
+                return Err(anyhow!("internal stream id column must not contain null").into());
+            }
+            if partition_times.is_null(row_index) {
+                return Err(anyhow!("internal partition time column must not contain null").into());
+            }
+
+            flush_units.insert(FlushUnit::new(
+                stream_ids.value(row_index),
+                partition_times.value(row_index),
+            ));
+        }
+
+        Ok(flush_units.into_iter().collect())
+    }
+
+    fn create_file_record(
+        &self,
+        flush_unit: FlushUnit,
+        records: Vec<RecordBatch>,
+        uuid_generator: &dyn UuidGeneratorPort,
+    ) -> Result<VortexFileRecord, ImportError> {
+        let schema = records
+            .first()
+            .expect("unexpected empty record batches for flush unit")
+            .schema();
+        let record = concat_batches(&schema, records.iter())?;
+        let name = format!("{}.vortex", uuid_generator.generate());
+        Ok(VortexFileRecord::new(name, flush_unit, record))
     }
 }
