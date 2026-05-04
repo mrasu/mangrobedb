@@ -13,6 +13,13 @@ pub enum CatalogPortError {
 pub trait CatalogPort {
     fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogPortError>;
 
+    fn get_current_state(
+        &self,
+        table_name: &str,
+        stream_id: i32,
+        partition_times: &[i64],
+    ) -> Result<Vec<CatalogFile>, CatalogPortError>;
+
     fn update_table_schema(
         &self,
         table_name: &str,
@@ -35,6 +42,15 @@ pub struct AddFilesEntry {
 
 #[derive(Debug, Clone)]
 pub struct AddFile {
+    pub path: String,
+    pub size: u64,
+    pub column_statistics: FileStatistics,
+}
+
+#[derive(Debug, Clone)]
+pub struct CatalogFile {
+    pub stream_id: i32,
+    pub partition_time: i64,
     pub path: String,
     pub size: u64,
     pub column_statistics: FileStatistics,

@@ -2,55 +2,70 @@ use std::sync::Arc;
 
 use crate::application::query::QueryOutput;
 use crate::application::query::error::QueryError;
-use arrow::array::{Int32Array, StringArray, TimestampMicrosecondArray};
-use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
-use arrow::record_batch::RecordBatch;
+use crate::domain::port::catalog::CatalogPort;
+use crate::domain::port::object_store::ObjectStorePort;
+use crate::domain::table::Table;
+use crate::domain::table_schema::DUMMY_TABLE;
+use arrow::datatypes::Schema;
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
+use datafusion::prelude::SessionContext;
+use vortex::VortexSessionDefault;
+use vortex::session::VortexSession;
+use vortex_datafusion::VortexFormat;
 
-#[derive(Debug, Default)]
-pub struct QueryService;
+const DEFAULT_STREAM_ID: i32 = 0;
 
-impl QueryService {
-    pub fn new() -> Self {
-        Self
+#[derive(Debug)]
+pub struct QueryService<C: CatalogPort, O: ObjectStorePort> {
+    catalog_port: Arc<C>,
+    object_store_port: Arc<O>,
+}
+
+impl<C: CatalogPort, O: ObjectStorePort> QueryService<C, O> {
+    pub fn new(catalog_port: Arc<C>, object_store_port: Arc<O>) -> Self {
+        Self {
+            catalog_port,
+            object_store_port,
+        }
     }
 
-    pub fn query(&self, sql: &str) -> Result<QueryOutput, QueryError> {
+    pub async fn query(&self, sql: &str) -> Result<QueryOutput, QueryError> {
         println!("DoGet query sql: {sql}");
 
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("id", DataType::Int32, false),
-            Field::new("stream_id", DataType::Int32, false),
-            Field::new("message", DataType::Utf8, false),
-            Field::new("user", DataType::Utf8, false),
-            Field::new(
-                "posted_at",
-                DataType::Timestamp(TimeUnit::Microsecond, None),
-                false,
-            ),
-        ]));
+        let files = self
+            .catalog_port
+            .get_current_state(DUMMY_TABLE, DEFAULT_STREAM_ID, &[])?;
+        let first = files
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("no registered files for {DUMMY_TABLE}"))?;
+        let bucket = self.object_store_port.bucket_name();
+        let table = Table::load(self.catalog_port.as_ref(), DUMMY_TABLE)?;
+        let filepath = table.build_path(bucket, first);
 
-        let batch = RecordBatch::try_new(
-            Arc::clone(&schema),
-            vec![
-                Arc::new(Int32Array::from(vec![11, 12, 13])),
-                Arc::new(Int32Array::from(vec![0, 0, 0])),
-                Arc::new(StringArray::from(vec![
-                    "doget-one",
-                    "doget-two",
-                    "doget-three",
-                ])),
-                Arc::new(StringArray::from(vec!["alice", "bob", "carol"])),
-                Arc::new(TimestampMicrosecondArray::from(vec![
-                    1_777_623_200_000_000,
-                    1_777_626_800_000_000,
-                    1_777_627_800_000_000,
-                ])),
-            ],
-        )?;
+        let ctx = SessionContext::new();
+        let store_url = url::Url::parse(&format!("s3://{}", bucket))?;
+        ctx.register_object_store(&store_url, self.object_store_port.object_store());
 
-        Ok(QueryOutput {
-            schema,
-            batches: vec![batch],
-        })
+        let format = Arc::new(VortexFormat::new(VortexSession::default()));
+        let table_url = ListingTableUrl::parse(&filepath)?;
+        let config = ListingTableConfig::new(table_url)
+            .with_listing_options(
+                ListingOptions::new(format).with_session_config_options(ctx.state().config()),
+            )
+            .infer_schema(&ctx.state())
+            .await?;
+
+        let listing_table = Arc::new(ListingTable::try_new(config)?);
+        ctx.register_table(DUMMY_TABLE, listing_table as _)?;
+
+        let batches = ctx.sql(sql).await?.collect().await?;
+        let schema = batches
+            .first()
+            .map(|batch| batch.schema())
+            .unwrap_or_else(|| Arc::new(Schema::empty()));
+
+        Ok(QueryOutput { schema, batches })
     }
 }

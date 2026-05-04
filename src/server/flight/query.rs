@@ -1,5 +1,6 @@
 use std::pin::Pin;
 
+use crate::application::query::error::QueryError;
 use crate::server::flight::server::SharedQueryService;
 use arrow_flight::utils::batches_to_flight_data;
 use arrow_flight::{FlightData, Ticket};
@@ -16,12 +17,20 @@ pub async fn handle_do_get(
     let sql = parse_query_sql(&ticket)?;
     let query_output = query_service
         .query(&sql)
-        .map_err(|error| Status::internal(format!("query failed: {error}")))?;
+        .await
+        .map_err(query_error_to_status)?;
 
     let flight_data = batches_to_flight_data(query_output.schema.as_ref(), query_output.batches)
         .map_err(|error| Status::internal(format!("failed to encode FlightData: {error}")))?;
     let output = stream::iter(flight_data.into_iter().map(Ok));
     Ok(Box::pin(output))
+}
+
+fn query_error_to_status(error: QueryError) -> Status {
+    match error.user_message() {
+        Some(message) => Status::invalid_argument(message),
+        None => Status::internal(format!("query failed: {error}")),
+    }
 }
 
 pub fn parse_query_sql(ticket: &Ticket) -> Result<String, Status> {

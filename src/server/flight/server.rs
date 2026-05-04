@@ -22,7 +22,7 @@ use tonic::{Request, Response, Status, Streaming};
 type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
 pub type SharedImportService = Arc<ImportService<MockCatalogPort, S3ObjectStorePort>>;
-pub type SharedQueryService = Arc<QueryService>;
+pub type SharedQueryService = Arc<QueryService<MockCatalogPort, S3ObjectStorePort>>;
 
 #[derive(Debug)]
 pub struct MangrobeFlightService {
@@ -49,7 +49,10 @@ pub async fn serve(addr: SocketAddr, app_config: &AppConfig) -> Result<(), anyho
         Arc::clone(&object_store_port),
         Arc::clone(&container),
     ));
-    let query_service = Arc::new(QueryService::new());
+    let query_service = Arc::new(QueryService::new(
+        Arc::clone(&catalog_port),
+        Arc::clone(&object_store_port),
+    ));
 
     Server::builder()
         .add_service(FlightServiceServer::new(MangrobeFlightService::new(

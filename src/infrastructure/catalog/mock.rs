@@ -1,4 +1,6 @@
-use crate::domain::port::catalog::{AddFile, AddFilesEntry, CatalogPort, CatalogPortError};
+use crate::domain::port::catalog::{
+    AddFile, AddFilesEntry, CatalogFile, CatalogPort, CatalogPortError,
+};
 use crate::domain::statistics::FileStatistics;
 use crate::domain::table_schema::{DUMMY_TABLE, TableSchema, initial_dummy_table_schema};
 use crate::infrastructure::catalog::persisted::PersistedState;
@@ -106,6 +108,35 @@ impl CatalogPort for MockCatalogPort {
             })
     }
 
+    fn get_current_state(
+        &self,
+        table_name: &str,
+        stream_id: i32,
+        partition_times: &[i64],
+    ) -> Result<Vec<CatalogFile>, CatalogPortError> {
+        debug!(
+            table_name,
+            stream_id,
+            ?partition_times,
+            "getting current state from mock catalog port"
+        );
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("mock catalog port state lock is poisoned"))?;
+
+        let table =
+            state
+                .tables
+                .get(table_name)
+                .ok_or_else(|| CatalogPortError::TableNotFound {
+                    table_name: table_name.to_string(),
+                })?;
+
+        // TODO: apply stream_id and partition_times filtering to match GetCurrentStateRequest.
+        Ok(table.files.iter().cloned().map(Into::into).collect())
+    }
+
     fn update_table_schema(
         &self,
         table_name: &str,
@@ -183,6 +214,18 @@ fn build_mock_catalog_file(stream_id: i32, partition_time: i64, file: AddFile) -
         path: file.path,
         size: file.size,
         column_statistics: file.column_statistics,
+    }
+}
+
+impl From<MockCatalogFile> for CatalogFile {
+    fn from(value: MockCatalogFile) -> Self {
+        Self {
+            stream_id: value.stream_id,
+            partition_time: value.partition_time,
+            path: value.path,
+            size: value.size,
+            column_statistics: value.column_statistics,
+        }
     }
 }
 

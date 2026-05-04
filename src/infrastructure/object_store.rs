@@ -12,6 +12,7 @@ const TABLE_STORAGE_PREFIX_ROOT: &str = "mangrobe-db";
 
 #[derive(Debug)]
 pub struct S3ObjectStorePort {
+    bucket: String,
     store: Arc<object_store::aws::AmazonS3>,
 }
 
@@ -21,6 +22,7 @@ impl S3ObjectStorePort {
             .with_bucket_name(bucket)
             .build()?;
         Ok(Self {
+            bucket: bucket.to_string(),
             store: Arc::new(store),
         })
     }
@@ -48,5 +50,13 @@ impl ObjectStorePort for S3ObjectStorePort {
         block_in_place(|| Handle::current().block_on(self.store.put(&location, payload.into())))?;
         info!(object_key = %location, "uploaded file to object store");
         Ok(())
+    }
+
+    fn bucket_name(&self) -> &str {
+        &self.bucket
+    }
+
+    fn object_store(&self) -> Arc<dyn object_store::ObjectStore> {
+        Arc::clone(&self.store) as Arc<dyn object_store::ObjectStore>
     }
 }
