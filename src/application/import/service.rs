@@ -12,13 +12,17 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub struct ImportService<C: CatalogPort, O: ObjectStorePort> {
-    catalog_port: C,
-    object_store_port: O,
+    catalog_port: Arc<C>,
+    object_store_port: Arc<O>,
     container: Arc<CommonPorts>,
 }
 
 impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
-    pub fn new(catalog_port: C, object_store_port: O, container: Arc<CommonPorts>) -> Self {
+    pub fn new(
+        catalog_port: Arc<C>,
+        object_store_port: Arc<O>,
+        container: Arc<CommonPorts>,
+    ) -> Self {
         Self {
             catalog_port,
             object_store_port,

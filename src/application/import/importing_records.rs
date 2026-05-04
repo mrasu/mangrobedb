@@ -57,7 +57,7 @@ impl ImportingRecords<Validated> {
 
     pub fn update_mangrobe_schema_if_required<R: CatalogPort>(
         self,
-        port: &R,
+        port: &Arc<R>,
     ) -> Result<ImportingRecords<MangrobeSchemaUpdated>, ImportError> {
         let schema = self
             .record_batches

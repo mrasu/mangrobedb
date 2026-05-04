@@ -21,7 +21,7 @@ use tonic::{Request, Response, Status, Streaming};
 
 type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
-pub type SharedImportService = Arc<ImportService<Arc<MockCatalogPort>, Arc<S3ObjectStorePort>>>;
+pub type SharedImportService = Arc<ImportService<MockCatalogPort, S3ObjectStorePort>>;
 pub type SharedQueryService = Arc<QueryService>;
 
 #[derive(Debug)]
