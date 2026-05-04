@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use crate::application::error::{ApplicationError, ApplicationUserError};
 use crate::application::query::QueryOutput;
-use crate::application::query::error::QueryError;
 use crate::domain::port::catalog::CatalogPort;
 use crate::domain::port::object_store::ObjectStorePort;
 use crate::domain::table::Table;
@@ -31,7 +31,7 @@ impl<C: CatalogPort, O: ObjectStorePort> QueryService<C, O> {
         }
     }
 
-    pub async fn query(&self, sql: &str) -> Result<QueryOutput, QueryError> {
+    pub async fn query(&self, sql: &str) -> Result<QueryOutput, ApplicationError> {
         println!("DoGet query sql: {sql}");
 
         let files = self
@@ -40,12 +40,19 @@ impl<C: CatalogPort, O: ObjectStorePort> QueryService<C, O> {
         let first = files
             .first()
             .ok_or_else(|| anyhow::anyhow!("no registered files for {DUMMY_TABLE}"))?;
-        let bucket = self.object_store_port.bucket_name();
         let table = Table::load(self.catalog_port.as_ref(), DUMMY_TABLE)?;
-        let filepath = table.build_path(bucket, first);
 
+        let table_bucket = &table.schema.bucket;
+        if !self.object_store_port.is_accessible(table_bucket) {
+            return Err(ApplicationUserError::S3InaccessibleTable {
+                table_name: table.schema.table_name,
+            }
+            .into());
+        }
+
+        let filepath = table.build_path(first);
         let ctx = SessionContext::new();
-        let store_url = url::Url::parse(&format!("s3://{}", bucket))?;
+        let store_url = url::Url::parse(&format!("s3://{}", table_bucket))?;
         ctx.register_object_store(&store_url, self.object_store_port.object_store());
 
         let format = Arc::new(VortexFormat::new(VortexSession::default()));

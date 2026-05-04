@@ -1,4 +1,4 @@
-use crate::application::import::error::{ImportError, ImportUserError};
+use crate::application::error::{ApplicationError, ApplicationUserError};
 use crate::application::import::validate::validate_schema;
 use crate::domain::file_batch::{FileBatch, FlushUnit, VortexFileRecord};
 use crate::domain::port::catalog::CatalogPort;
@@ -38,15 +38,15 @@ impl ImportingRecords<Validated> {
     pub fn try_new(
         table_schema: TableSchema,
         record_batches: Vec<RecordBatch>,
-    ) -> Result<Self, ImportError> {
+    ) -> Result<Self, ApplicationError> {
         let first_record_schema = record_batches
             .first()
-            .ok_or(ImportUserError::EmptyImport)?
+            .ok_or(ApplicationUserError::EmptyImport)?
             .schema();
 
         for batch in &record_batches {
             if batch.schema() != first_record_schema {
-                return Err(ImportUserError::SchemaMismatch.into());
+                return Err(ApplicationUserError::SchemaMismatch.into());
             }
         }
 
@@ -58,7 +58,7 @@ impl ImportingRecords<Validated> {
     pub fn update_mangrobe_schema_if_required<R: CatalogPort>(
         self,
         port: &Arc<R>,
-    ) -> Result<ImportingRecords<MangrobeSchemaUpdated>, ImportError> {
+    ) -> Result<ImportingRecords<MangrobeSchemaUpdated>, ApplicationError> {
         let schema = self
             .record_batches
             .first()
@@ -69,7 +69,7 @@ impl ImportingRecords<Validated> {
             .add_missing_public_columns_if_required(&schema)?;
 
         if result.schema_changed {
-            port.update_table_schema(&result.schema.name, result.schema.clone())?;
+            port.update_table_schema(&result.schema.table_name, result.schema.clone())?;
         }
 
         Ok(ImportingRecords::new(result.schema, self.record_batches))
@@ -80,7 +80,7 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
     pub fn to_file_batch(
         &self,
         uuid_generator: &dyn UuidGeneratorPort,
-    ) -> Result<FileBatch, ImportError> {
+    ) -> Result<FileBatch, ApplicationError> {
         let records = self
             .record_batches
             .iter()
@@ -92,7 +92,7 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
         Ok(FileBatch::new(self.schema.clone(), file_records))
     }
 
-    fn add_internal_columns(&self, batch: &RecordBatch) -> Result<RecordBatch, ImportError> {
+    fn add_internal_columns(&self, batch: &RecordBatch) -> Result<RecordBatch, ApplicationError> {
         let schema = batch.schema();
         let (internal_stream_id_field, internal_stream_ids) =
             self.create_internal_stream_ids(&schema, batch)?;
@@ -117,11 +117,11 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
         &self,
         schema: &SchemaRef,
         batch: &RecordBatch,
-    ) -> Result<(Field, Arc<Int32Array>), ImportError> {
+    ) -> Result<(Field, Arc<Int32Array>), ApplicationError> {
         let stream_id_mapping = self.schema.stream_id_mapping();
         let stream_index = schema
             .index_of(&stream_id_mapping.src_column_ref().name)
-            .map_err(|_| ImportUserError::MissingColumn {
+            .map_err(|_| ApplicationUserError::MissingColumn {
                 column_name: stream_id_mapping.src_column_ref().name.clone(),
             })?;
 
@@ -129,7 +129,7 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
         let stream_ids = stream_ids
             .as_any()
             .downcast_ref::<Int32Array>()
-            .ok_or_else(|| ImportUserError::IncompatibleColumnType {
+            .ok_or_else(|| ApplicationUserError::IncompatibleColumnType {
                 column_name: stream_id_mapping.src_column_ref().name.clone(),
                 expected: "Int32".to_string(),
                 actual: format!("{:?}", stream_ids.data_type()),
@@ -147,10 +147,10 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
         Ok((field, internal_stream_ids))
     }
 
-    fn validate_stream_ids(&self, stream_ids: &Int32Array) -> Result<(), ImportError> {
+    fn validate_stream_ids(&self, stream_ids: &Int32Array) -> Result<(), ApplicationError> {
         for row_index in 0..stream_ids.len() {
             if stream_ids.is_null(row_index) {
-                return Err(ImportUserError::UnsupportedStreamId {
+                return Err(ApplicationUserError::UnsupportedStreamId {
                     row_index,
                     value: None,
                 }
@@ -159,7 +159,7 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
 
             let value = stream_ids.value(row_index);
             if value != 0 {
-                return Err(ImportUserError::UnsupportedStreamId {
+                return Err(ApplicationUserError::UnsupportedStreamId {
                     row_index,
                     value: Some(value),
                 }
@@ -174,11 +174,11 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
         &self,
         schema: &SchemaRef,
         batch: &RecordBatch,
-    ) -> Result<(Field, Arc<TimestampMicrosecondArray>), ImportError> {
+    ) -> Result<(Field, Arc<TimestampMicrosecondArray>), ApplicationError> {
         let partition_time_mapping = self.schema.partition_time_mapping();
         let partition_time_index = schema
             .index_of(&partition_time_mapping.src_column_ref().name)
-            .map_err(|_| ImportUserError::MissingColumn {
+            .map_err(|_| ApplicationUserError::MissingColumn {
                 column_name: partition_time_mapping.src_column_ref().name.clone(),
             })?;
 
@@ -200,16 +200,16 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
         &self,
         partition_time_mapping: &TableMapping,
         array: &T,
-    ) -> Result<TimestampMicrosecondArray, ImportError> {
+    ) -> Result<TimestampMicrosecondArray, ApplicationError> {
         if !matches!(partition_time_mapping.strategy, MappingStrategy::ToHour) {
-            return Err(ImportUserError::NotImplemented {
+            return Err(ApplicationUserError::NotImplemented {
                 message: "partition_time works only to_hour".into(),
             }
             .into());
         };
 
         if array.null_count() > 0 {
-            return Err(ImportUserError::NullValue {
+            return Err(ApplicationUserError::NullValue {
                 column_name: partition_time_mapping.src_column_ref().name.to_string(),
             }
             .into());
@@ -218,7 +218,7 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
         Ok(partition_time_mapping
             .strategy
             .create_to_hour_array(array)
-            .map_err(|_| ImportUserError::IncompatibleColumnType {
+            .map_err(|_| ApplicationUserError::IncompatibleColumnType {
                 column_name: partition_time_mapping.src_column_ref().name.to_string(),
                 expected: "Timestamp".to_string(),
                 actual: format!("{:?}", array.data_type()),
@@ -229,7 +229,7 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
         &self,
         records: Vec<RecordBatch>,
         uuid_generator: &dyn UuidGeneratorPort,
-    ) -> Result<Vec<VortexFileRecord>, ImportError> {
+    ) -> Result<Vec<VortexFileRecord>, ApplicationError> {
         let mut records_by_flush_unit: BTreeMap<FlushUnit, Vec<RecordBatch>> = BTreeMap::new();
 
         for record in records {
@@ -257,7 +257,7 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
             .map(|(flush_unit, records)| {
                 self.create_file_record(flush_unit, records, uuid_generator)
             })
-            .collect::<Result<Vec<_>, ImportError>>()?;
+            .collect::<Result<Vec<_>, ApplicationError>>()?;
 
         Ok(file_records)
     }
@@ -266,7 +266,7 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
         &self,
         stream_ids: &Int32Array,
         partition_times: &TimestampMicrosecondArray,
-    ) -> Result<Vec<FlushUnit>, ImportError> {
+    ) -> Result<Vec<FlushUnit>, ApplicationError> {
         let mut flush_units = BTreeSet::new();
 
         for row_index in 0..stream_ids.len() {
@@ -291,7 +291,7 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
         flush_unit: FlushUnit,
         records: Vec<RecordBatch>,
         uuid_generator: &dyn UuidGeneratorPort,
-    ) -> Result<VortexFileRecord, ImportError> {
+    ) -> Result<VortexFileRecord, ApplicationError> {
         let schema = records
             .first()
             .expect("unexpected empty record batches for flush unit")

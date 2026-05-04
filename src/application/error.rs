@@ -1,23 +1,27 @@
 use arrow::error::ArrowError;
+use datafusion::error::DataFusionError;
 use thiserror::Error;
+use url::ParseError;
 
-use crate::domain::port::catalog::CatalogPortError;
+use crate::domain::port::catalog::CatalogError;
 use crate::domain::table_schema::TableSchemaError;
 
 #[derive(Debug, Error)]
-pub enum ImportError {
+pub enum ApplicationError {
     #[error("{0}")]
-    User(ImportUserError),
+    User(ApplicationUserError),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
 
 #[derive(Debug, Error)]
-pub enum ImportUserError {
+pub enum ApplicationUserError {
     #[error("failed to validate. {message}")]
     ValidationError { message: String },
-    #[error("unknown import table: {table_name}")]
-    InvalidTable { table_name: String },
+    #[error("unknown table: {table_name}")]
+    UnknownTable { table_name: String },
+    #[error("cannot access s3: {table_name}")]
+    S3InaccessibleTable { table_name: String },
     #[error("import request must include at least one RecordBatch")]
     EmptyImport,
     #[error("all RecordBatches in one import request must have the same schema")]
@@ -43,8 +47,11 @@ pub enum ImportUserError {
     NotImplemented { message: String },
 }
 
-impl ImportError {
-    pub fn user_message(&self) -> Option<String> {
+// Error conversion policy:
+// `From` is for internal errors only.
+// Convert `ApplicationUserError` explicitly at each call site to decide whether it should be user-facing.
+impl ApplicationError {
+    pub fn user_display_message(&self) -> Option<String> {
         match self {
             Self::User(error) => Some(error.to_string()),
             Self::Internal(_) => None,
@@ -52,34 +59,38 @@ impl ImportError {
     }
 }
 
-impl From<ImportUserError> for ImportError {
-    fn from(value: ImportUserError) -> Self {
+impl From<ApplicationUserError> for ApplicationError {
+    fn from(value: ApplicationUserError) -> Self {
         Self::User(value)
     }
 }
 
-impl From<ArrowError> for ImportError {
+impl From<ArrowError> for ApplicationError {
     fn from(value: ArrowError) -> Self {
         anyhow::Error::new(value).into()
     }
 }
 
-impl From<CatalogPortError> for ImportError {
-    fn from(value: CatalogPortError) -> Self {
-        match value {
-            CatalogPortError::TableNotFound { table_name } => {
-                ImportUserError::InvalidTable { table_name }.into()
-            }
-            CatalogPortError::Internal(error) => Self::Internal(error),
-        }
+impl From<CatalogError> for ApplicationError {
+    fn from(value: CatalogError) -> Self {
+        anyhow::Error::new(value).into()
     }
 }
 
-impl From<TableSchemaError> for ImportError {
+impl From<ParseError> for ApplicationError {
+    fn from(value: ParseError) -> Self {
+        anyhow::Error::new(value).into()
+    }
+}
+
+impl From<DataFusionError> for ApplicationError {
+    fn from(value: DataFusionError) -> Self {
+        anyhow::Error::new(value).into()
+    }
+}
+
+impl From<TableSchemaError> for ApplicationError {
     fn from(value: TableSchemaError) -> Self {
-        ImportUserError::ValidationError {
-            message: value.to_string(),
-        }
-        .into()
+        anyhow::Error::new(value).into()
     }
 }

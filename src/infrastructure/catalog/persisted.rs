@@ -15,6 +15,8 @@ pub(super) struct PersistedState {
 #[derive(Debug, Serialize, Deserialize)]
 struct PersistedTable {
     name: String,
+    bucket: String,
+    path_prefix: String,
     public_columns: Vec<PersistedPublicColumn>,
     stream_id_mapping: PersistedTableMapping,
     partition_time_mapping: PersistedTableMapping,
@@ -115,6 +117,8 @@ impl PersistedTable {
             name: self.name.clone(),
             schema: TableSchema::new(
                 self.name,
+                self.bucket,
+                self.path_prefix,
                 columns,
                 stream_id_mapping,
                 partition_time_mapping,
@@ -138,6 +142,8 @@ impl PersistedTable {
 
         Ok(Self {
             name: table.name.clone(),
+            bucket: table.schema.bucket.clone(),
+            path_prefix: table.schema.path_prefix.clone(),
             public_columns,
             stream_id_mapping: PersistedTableMapping::try_from_table_mapping(
                 table.schema.stream_id_mapping(),

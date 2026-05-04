@@ -3,7 +3,7 @@ use crate::domain::table_schema::TableSchema;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum CatalogPortError {
+pub enum CatalogError {
     #[error("table not found: {table_name}")]
     TableNotFound { table_name: String },
     #[error(transparent)]
@@ -11,27 +11,27 @@ pub enum CatalogPortError {
 }
 
 pub trait CatalogPort {
-    fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogPortError>;
+    fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError>;
 
     fn get_current_state(
         &self,
         table_name: &str,
         stream_id: i32,
         partition_times: &[i64],
-    ) -> Result<Vec<CatalogFile>, CatalogPortError>;
+    ) -> Result<Vec<CatalogFile>, CatalogError>;
 
     fn update_table_schema(
         &self,
         table_name: &str,
         schema: TableSchema,
-    ) -> Result<(), CatalogPortError>;
+    ) -> Result<(), CatalogError>;
 
     fn add_files(
         &self,
         table_name: &str,
         stream_id: i32,
         entries: Vec<AddFilesEntry>,
-    ) -> Result<(), CatalogPortError>;
+    ) -> Result<(), CatalogError>;
 }
 
 #[derive(Debug, Clone)]

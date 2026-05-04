@@ -7,8 +7,8 @@ use crate::app_config::AppConfig;
 use crate::application::import::service::ImportService;
 use crate::application::query::service::QueryService;
 use crate::domain::common_ports::CommonPorts;
-use crate::infrastructure::catalog::mock::MockCatalogPort;
-use crate::infrastructure::object_store::S3ObjectStorePort;
+use crate::infrastructure::catalog::mock::MockCatalog;
+use crate::infrastructure::object_store::S3ObjectStore;
 use crate::infrastructure::uuid::RandomUuid;
 use arrow_flight::flight_service_server::{FlightService, FlightServiceServer};
 use arrow_flight::{
@@ -21,8 +21,8 @@ use tonic::{Request, Response, Status, Streaming};
 
 type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
-pub type SharedImportService = Arc<ImportService<MockCatalogPort, S3ObjectStorePort>>;
-pub type SharedQueryService = Arc<QueryService<MockCatalogPort, S3ObjectStorePort>>;
+pub type SharedImportService = Arc<ImportService<MockCatalog, S3ObjectStore>>;
+pub type SharedQueryService = Arc<QueryService<MockCatalog, S3ObjectStore>>;
 
 #[derive(Debug)]
 pub struct MangrobeFlightService {
@@ -40,14 +40,14 @@ impl MangrobeFlightService {
 }
 
 pub async fn serve(addr: SocketAddr, app_config: &AppConfig) -> Result<(), anyhow::Error> {
-    let catalog_port = Arc::new(MockCatalogPort::load_default()?);
-    let container = Arc::new(CommonPorts::new(Arc::new(RandomUuid)));
-    let object_store_port = Arc::new(S3ObjectStorePort::from_env(&app_config.s3.bucket)?);
+    let catalog_port = Arc::new(MockCatalog::load_default()?);
+    let common_ports = Arc::new(CommonPorts::new(Arc::new(RandomUuid)));
+    let object_store_port = Arc::new(S3ObjectStore::from_env(&app_config.s3.bucket)?);
 
     let import_service = Arc::new(ImportService::new(
         Arc::clone(&catalog_port),
         Arc::clone(&object_store_port),
-        Arc::clone(&container),
+        Arc::clone(&common_ports),
     ));
     let query_service = Arc::new(QueryService::new(
         Arc::clone(&catalog_port),
@@ -116,7 +116,10 @@ impl FlightService for MangrobeFlightService {
         &self,
         request: Request<Ticket>,
     ) -> Result<Response<Self::DoGetStream>, Status> {
-        let output = query::handle_do_get(&self.query_service, request.into_inner()).await?;
+        let output = query::handle_do_get(&self.query_service, request.into_inner())
+            .await
+            .map_err(|error| error.handle_then_to_status())?;
+
         Ok(Response::new(output))
     }
 
@@ -126,7 +129,10 @@ impl FlightService for MangrobeFlightService {
         &self,
         request: Request<Streaming<FlightData>>,
     ) -> Result<Response<Self::DoPutStream>, Status> {
-        import::handle_do_put(&self.import_service, request.into_inner()).await?;
+        import::handle_do_put(&self.import_service, request.into_inner())
+            .await
+            .map_err(|error| error.handle_then_to_status())?;
+
         Ok(Response::new(Box::pin(stream::empty())))
     }
 

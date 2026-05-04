@@ -1,5 +1,5 @@
 use crate::domain::port::catalog::{
-    AddFile, AddFilesEntry, CatalogFile, CatalogPort, CatalogPortError,
+    AddFile, AddFilesEntry, CatalogError, CatalogFile, CatalogPort,
 };
 use crate::domain::statistics::FileStatistics;
 use crate::domain::table_schema::{DUMMY_TABLE, TableSchema, initial_dummy_table_schema};
@@ -14,7 +14,7 @@ use tracing::debug;
 const DEFAULT_STATE_PATH: &str = "./data/mock/state.json";
 
 #[derive(Debug)]
-pub struct MockCatalogPort {
+pub struct MockCatalog {
     state_path: PathBuf,
     state: Mutex<MockState>,
 }
@@ -40,7 +40,7 @@ pub(super) struct MockCatalogFile {
     pub(super) column_statistics: FileStatistics,
 }
 
-impl MockCatalogPort {
+impl MockCatalog {
     pub fn load_default() -> anyhow::Result<Self> {
         Self::load(DEFAULT_STATE_PATH)
     }
@@ -91,8 +91,8 @@ impl MockCatalogPort {
     }
 }
 
-impl CatalogPort for MockCatalogPort {
-    fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogPortError> {
+impl CatalogPort for MockCatalog {
+    fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError> {
         debug!(table_name, "getting table schema from mock catalog port");
         let state = self
             .state
@@ -103,7 +103,7 @@ impl CatalogPort for MockCatalogPort {
             .tables
             .get(table_name)
             .map(|table| table.schema.clone())
-            .ok_or_else(|| CatalogPortError::TableNotFound {
+            .ok_or_else(|| CatalogError::TableNotFound {
                 table_name: table_name.to_string(),
             })
     }
@@ -113,7 +113,7 @@ impl CatalogPort for MockCatalogPort {
         table_name: &str,
         stream_id: i32,
         partition_times: &[i64],
-    ) -> Result<Vec<CatalogFile>, CatalogPortError> {
+    ) -> Result<Vec<CatalogFile>, CatalogError> {
         debug!(
             table_name,
             stream_id,
@@ -125,13 +125,12 @@ impl CatalogPort for MockCatalogPort {
             .lock()
             .map_err(|_| anyhow!("mock catalog port state lock is poisoned"))?;
 
-        let table =
-            state
-                .tables
-                .get(table_name)
-                .ok_or_else(|| CatalogPortError::TableNotFound {
-                    table_name: table_name.to_string(),
-                })?;
+        let table = state
+            .tables
+            .get(table_name)
+            .ok_or_else(|| CatalogError::TableNotFound {
+                table_name: table_name.to_string(),
+            })?;
 
         // TODO: apply stream_id and partition_times filtering to match GetCurrentStateRequest.
         Ok(table.files.iter().cloned().map(Into::into).collect())
@@ -141,7 +140,7 @@ impl CatalogPort for MockCatalogPort {
         &self,
         table_name: &str,
         schema: TableSchema,
-    ) -> Result<(), CatalogPortError> {
+    ) -> Result<(), CatalogError> {
         debug!(table_name, "updating table schema in mock catalog port");
         let mut state = self
             .state
@@ -152,7 +151,7 @@ impl CatalogPort for MockCatalogPort {
             state
                 .tables
                 .get_mut(table_name)
-                .ok_or_else(|| CatalogPortError::TableNotFound {
+                .ok_or_else(|| CatalogError::TableNotFound {
                     table_name: table_name.to_string(),
                 })?;
 
@@ -167,7 +166,7 @@ impl CatalogPort for MockCatalogPort {
         table_name: &str,
         stream_id: i32,
         entries: Vec<AddFilesEntry>,
-    ) -> Result<(), CatalogPortError> {
+    ) -> Result<(), CatalogError> {
         let mut state = self
             .state
             .lock()
@@ -177,7 +176,7 @@ impl CatalogPort for MockCatalogPort {
             state
                 .tables
                 .get_mut(table_name)
-                .ok_or_else(|| CatalogPortError::TableNotFound {
+                .ok_or_else(|| CatalogError::TableNotFound {
                     table_name: table_name.to_string(),
                 })?;
 

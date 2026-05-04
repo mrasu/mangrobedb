@@ -1,4 +1,5 @@
 use crate::domain::port::object_store::ObjectStorePort;
+use anyhow::anyhow;
 use object_store::ObjectStoreExt;
 use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectPath;
@@ -8,15 +9,13 @@ use tokio::runtime::Handle;
 use tokio::task::block_in_place;
 use tracing::info;
 
-const TABLE_STORAGE_PREFIX_ROOT: &str = "mangrobe-db";
-
 #[derive(Debug)]
-pub struct S3ObjectStorePort {
+pub struct S3ObjectStore {
     bucket: String,
     store: Arc<object_store::aws::AmazonS3>,
 }
 
-impl S3ObjectStorePort {
+impl S3ObjectStore {
     pub fn from_env(bucket: &str) -> Result<Self, anyhow::Error> {
         let store = AmazonS3Builder::from_env()
             .with_bucket_name(bucket)
@@ -28,17 +27,20 @@ impl S3ObjectStorePort {
     }
 }
 
-impl ObjectStorePort for S3ObjectStorePort {
+impl ObjectStorePort for S3ObjectStore {
     fn upload(
         &self,
         table_name: &str,
+        bucket: &str,
+        path_prefix: &str,
         table_relative_path: &str,
         local_temp_path: &Path,
     ) -> Result<(), anyhow::Error> {
+        self.assert_accessible(bucket)?;
+
         let payload = std::fs::read(local_temp_path)?;
-        let location = ObjectPath::from(format!(
-            "{TABLE_STORAGE_PREFIX_ROOT}/{table_name}/{table_relative_path}"
-        ));
+        let location =
+            ObjectPath::from(format!("{path_prefix}/{table_name}/{table_relative_path}"));
         info!(
             table_name,
             table_relative_path,
@@ -52,11 +54,21 @@ impl ObjectStorePort for S3ObjectStorePort {
         Ok(())
     }
 
-    fn bucket_name(&self) -> &str {
-        &self.bucket
+    fn is_accessible(&self, bucket: &str) -> bool {
+        self.bucket == bucket
     }
 
     fn object_store(&self) -> Arc<dyn object_store::ObjectStore> {
         Arc::clone(&self.store) as Arc<dyn object_store::ObjectStore>
+    }
+}
+
+impl S3ObjectStore {
+    fn assert_accessible(&self, bucket: &str) -> Result<(), anyhow::Error> {
+        if self.is_accessible(bucket) {
+            Ok(())
+        } else {
+            Err(anyhow!("Not accessible bucket: {bucket}"))
+        }
     }
 }

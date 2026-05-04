@@ -1,3 +1,4 @@
+mod error;
 pub mod import;
 pub mod query;
 pub mod server;

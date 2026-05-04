@@ -1,18 +1,23 @@
 use arrow_flight::decode::FlightRecordBatchStream;
 use arrow_flight::{FlightData, FlightDescriptor};
 use futures::{StreamExt, TryStreamExt, stream};
-use tonic::{Status, Streaming};
+use tonic::Streaming;
 
-use crate::application::import::error::ImportError;
+use crate::application::error::ApplicationError;
+use crate::server::flight::error::FlightServerError;
 use crate::server::flight::server::SharedImportService;
 
 pub async fn handle_do_put(
     import_service: &SharedImportService,
     mut stream: Streaming<FlightData>,
-) -> Result<(), Status> {
-    let first = stream.message().await?.ok_or_else(|| {
-        Status::invalid_argument("DoPut stream must include a FlightData message")
-    })?;
+) -> Result<(), FlightServerError> {
+    let first = stream
+        .message()
+        .await
+        .map_err(FlightServerError::from)?
+        .ok_or_else(|| {
+            FlightServerError::invalid_argument("DoPut stream must include a FlightData message")
+        })?;
 
     let table_name = parse_import_descriptor(first.flight_descriptor.as_ref())?;
     let flight_data_stream =
@@ -22,7 +27,9 @@ pub async fn handle_do_put(
     let mut batches = Vec::new();
     while let Some(batch) = record_batches.next().await {
         let batch = batch.map_err(|error| {
-            Status::invalid_argument(format!("failed to decode Arrow Flight data: {error}"))
+            FlightServerError::invalid_argument(format!(
+                "failed to decode Arrow Flight data: {error}"
+            ))
         })?;
         batches.push(batch);
     }
@@ -34,24 +41,21 @@ pub async fn handle_do_put(
     Ok(())
 }
 
-fn parse_import_descriptor(descriptor: Option<&FlightDescriptor>) -> Result<String, Status> {
+fn parse_import_descriptor(
+    descriptor: Option<&FlightDescriptor>,
+) -> Result<String, FlightServerError> {
     let descriptor = descriptor.ok_or_else(|| {
-        Status::invalid_argument("DoPut first FlightData must include descriptor")
+        FlightServerError::invalid_argument("DoPut first FlightData must include descriptor")
     })?;
 
     match descriptor.path.as_slice() {
         [command, table_name] if command == "import" => Ok(table_name.clone()),
-        _ => Err(Status::invalid_argument(
+        _ => Err(FlightServerError::invalid_argument(
             r#"DoPut descriptor path must be ["import", table_name]"#,
         )),
     }
 }
 
-fn import_error_to_status(error: ImportError) -> Status {
-    if let Some(message) = error.user_message() {
-        return Status::invalid_argument(message);
-    }
-
-    eprintln!("failed to transform import RecordBatch: {error}");
-    Status::internal("failed to transform import RecordBatch")
+fn import_error_to_status(error: ApplicationError) -> FlightServerError {
+    FlightServerError::from_application_error("import failed", error)
 }

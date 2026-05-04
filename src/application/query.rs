@@ -1,4 +1,3 @@
-pub mod error;
 pub mod service;
 
 use arrow::datatypes::SchemaRef;

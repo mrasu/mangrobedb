@@ -22,7 +22,10 @@ pub enum TableSchemaError {
 
 #[derive(Debug, Clone)]
 pub struct TableSchema {
-    pub name: String,
+    pub table_name: String,
+    pub bucket: String,
+    pub path_prefix: String,
+
     public_columns: Vec<ColumnDefinition<Public>>,
 
     stream_id_mapping: TableMapping,
@@ -52,13 +55,17 @@ pub struct AddMissingPublicColumnsResult {
 
 impl TableSchema {
     pub fn new(
-        name: String,
+        table_name: String,
+        bucket: String,
+        path_prefix: String,
         public_columns: Vec<PublicColumnDefinition>,
         stream_id_mapping: TableMapping,
         partition_time_mapping: TableMapping,
     ) -> Self {
         Self {
-            name,
+            table_name,
+            bucket,
+            path_prefix,
             public_columns,
             stream_id_mapping,
             partition_time_mapping,
@@ -204,11 +211,15 @@ fn expected_type(data_type: &DataType) -> String {
 
 // TODO: remove
 pub const DUMMY_TABLE: &str = "dummy_table";
+const DUMMY_TABLE_BUCKET: &str = "mangrobe-db-development";
+const DUMMY_TABLE_PATH_PREFIX: &str = "mangrobe-db";
 
 // TODO: remove dummy schema
 pub fn initial_dummy_table_schema() -> TableSchema {
     TableSchema::new(
         DUMMY_TABLE.to_string(),
+        DUMMY_TABLE_BUCKET.to_string(),
+        DUMMY_TABLE_PATH_PREFIX.to_string(),
         vec![
             PublicColumnDefinition::new("id", DataType::Int32),
             PublicColumnDefinition::new("stream_id", DataType::Int32),
