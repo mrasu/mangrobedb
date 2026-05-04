@@ -5,3 +5,4 @@ pub mod statistics;
 pub mod table;
 pub mod table_mapping;
 pub mod table_schema;
+pub mod time_range;

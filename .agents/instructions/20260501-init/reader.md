@@ -78,7 +78,7 @@ Query(sql)
   -> reject __mangrobe__ column references
   -> resolve dummy_table through the mangrobe table provider
   -> mangrobe table provider receives DataFusion scan filters
-  -> extract posted_at predicate from DataFusion expressions
+  -> extract partition-source predicates from DataFusion expressions
   -> derive __mangrobe__partition_time hour range
   -> mock GetCurrentState(dummy_table, stream_id=0, partition_times)
   -> mock GetFileInfo(candidate files, min/max stats)
@@ -95,13 +95,21 @@ The initial implementation performs pruning in two stages.
 
 First, partition pruning:
 
-- Extract a `posted_at` range from DataFusion filter expressions when possible.
+- Extract a range for the table's partition-source user-visible column from
+  DataFusion filter expressions when possible. For the initial `dummy_table`,
+  that column is currently `posted_at`.
 - Convert it to the corresponding hourly
   `__mangrobe__partition_time` range.
 - Pass the derived partition times to `GetCurrentState` so the mock catalog
   returns only matching partitions when a partition range is available.
 - If no partition range can be derived, call `GetCurrentState` without
   `partition_times` and scan all visible partitions for the stream.
+- The current implementation can derive ranges from `BETWEEN`, simple
+  comparison predicates, and `AND`/`OR` combinations when they can be reduced
+  to hourly partition ranges.
+- Open-ended predicates such as `>`, `>=`, `<`, and `<=` are parsed, but the
+  current `partition_times` handoff cannot express an unbounded side. Those
+  cases currently fall back to scanning all visible partitions.
 
 Second, file statistics pruning:
 
@@ -148,8 +156,8 @@ The mangrobe table provider is responsible for:
 
 - exposing the unified in-memory table schema to DataFusion;
 - rejecting direct references to internal `__mangrobe__*` columns;
-- extracting `posted_at` predicates from DataFusion filter expressions when
-  possible;
+- extracting partition-source predicates from DataFusion filter expressions
+  when possible;
 - deriving candidate `__mangrobe__partition_time` hours;
 - calling the mock catalog for current state and file information;
 - applying partition pruning and catalog-statistics pruning;
@@ -222,6 +230,10 @@ For the initial MVP, these calls are represented by a mock:
 `GetCurrentStateRequest.partition_times` is optional by convention. If the
 repeated field is empty, the mock returns all visible partitions for the stream.
 If it contains values, the mock returns only those partition times.
+
+The current handoff via `partition_times` can express only a bounded set of
+hour values. Open-ended partition predicates therefore currently fall back to
+the empty-field meaning of "all visible partitions".
 
 `GetCurrentStateResponse` groups visible files by partition. The reader must not
 derive partition membership by parsing file paths.

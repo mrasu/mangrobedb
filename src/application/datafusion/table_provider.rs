@@ -1,0 +1,123 @@
+use std::any::Any;
+use std::sync::Arc;
+
+use crate::application::datafusion::partition_extractor::extract_partition_times;
+use crate::domain::port::catalog::{CatalogFile, CatalogPort};
+use crate::domain::table::Table;
+use arrow::datatypes::{Field, Schema, SchemaRef};
+use async_trait::async_trait;
+use datafusion::catalog::Session;
+use datafusion::datasource::TableProvider;
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
+use datafusion::error::DataFusionError;
+use datafusion::error::Result as DataFusionResult;
+use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
+use datafusion::physical_plan::ExecutionPlan;
+use tracing::debug;
+use vortex::VortexSessionDefault;
+use vortex::session::VortexSession;
+use vortex_datafusion::VortexFormat;
+
+const DEFAULT_STREAM_ID: i32 = 0;
+
+#[derive(Debug)]
+pub struct DummyTableProvider<C: CatalogPort> {
+    table: Table,
+    catalog_port: Arc<C>,
+    schema: SchemaRef,
+}
+
+impl<C: CatalogPort> DummyTableProvider<C> {
+    pub fn new(table: Table, catalog_port: Arc<C>) -> Self {
+        Self {
+            schema: Arc::new(build_public_schema(&table)),
+            table,
+            catalog_port,
+        }
+    }
+}
+
+#[async_trait]
+impl<C: CatalogPort + 'static> TableProvider for DummyTableProvider<C> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn schema(&self) -> SchemaRef {
+        Arc::clone(&self.schema)
+    }
+
+    fn table_type(&self) -> TableType {
+        TableType::Base
+    }
+
+    async fn scan(
+        &self,
+        state: &dyn Session,
+        projection: Option<&Vec<usize>>,
+        filters: &[Expr],
+        limit: Option<usize>,
+    ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
+        let partition_times = extract_partition_times(&self.table, filters)?.ok_or(
+            // TODO: return zero rows
+            DataFusionError::Execution("no partition".to_string()),
+        )?;
+
+        let files = self
+            .catalog_port
+            .get_current_state(
+                &self.table.schema.table_name,
+                DEFAULT_STREAM_ID,
+                &partition_times,
+            )
+            .map_err(|error| DataFusionError::External(Box::new(error)))?;
+        let paths = resolve_catalog_paths(&self.table, &files);
+        debug!(table_name = %self.table.schema.table_name, ?paths, "selected query files");
+        if paths.is_empty() {
+            // TODO: return zero rows
+            return Err(DataFusionError::Execution(format!(
+                "no registered files for {}",
+                self.table.schema.table_name
+            )));
+        }
+
+        let table_paths = paths
+            .iter()
+            .map(ListingTableUrl::parse)
+            .collect::<Result<Vec<_>, _>>()?;
+        let format = Arc::new(VortexFormat::new(VortexSession::default()));
+        let config = ListingTableConfig::new_with_multi_paths(table_paths)
+            .with_listing_options(ListingOptions::new(format))
+            .with_schema(Arc::clone(&self.schema));
+        let listing_table = ListingTable::try_new(config)?;
+
+        listing_table.scan(state, projection, filters, limit).await
+    }
+
+    fn supports_filters_pushdown(
+        &self,
+        filters: &[&Expr],
+    ) -> DataFusionResult<Vec<TableProviderFilterPushDown>> {
+        Ok(filters
+            .iter()
+            .map(|_| TableProviderFilterPushDown::Inexact)
+            .collect())
+    }
+}
+
+fn resolve_catalog_paths(table: &Table, files: &[CatalogFile]) -> Vec<String> {
+    files.iter().map(|file| table.build_path(file)).collect()
+}
+
+fn build_public_schema(table: &Table) -> Schema {
+    let fields: Vec<_> = table
+        .schema
+        .public_columns()
+        .iter()
+        .map(|column| Field::new(&column.name, column.data_type().clone(), true))
+        .collect();
+
+    Schema::new(fields)
+}

@@ -171,6 +171,12 @@ __mangrobe__partition_time = hour(posted_at)
 
 `posted_at` is event time.
 
+For the initial `dummy_table`, `posted_at` is the user-visible source column
+for partition time derivation. Reader-side partition pruning should follow the
+table schema's partition-time mapping rather than hardcoding `posted_at`,
+so the implementation can continue to work if a future table maps partition
+time from a different user-visible column.
+
 The mangrobe protocol `partition_time` fields use
 `__mangrobe__partition_time`, not any user-visible `partition_time` column.
 

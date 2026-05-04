@@ -132,8 +132,18 @@ impl CatalogPort for MockCatalog {
                 table_name: table_name.to_string(),
             })?;
 
-        // TODO: apply stream_id and partition_times filtering to match GetCurrentStateRequest.
-        Ok(table.files.iter().cloned().map(Into::into).collect())
+        let files = table
+            .files
+            .iter()
+            .filter(|file| file.stream_id == stream_id)
+            .filter(|file| {
+                partition_times.is_empty() || partition_times.contains(&file.partition_time)
+            })
+            .cloned()
+            .map(Into::into)
+            .collect();
+
+        Ok(files)
     }
 
     fn update_table_schema(

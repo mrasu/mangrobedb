@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use crate::domain::statistics::FileStatistics;
 use crate::domain::table_schema::TableSchema;
 use thiserror::Error;
@@ -10,7 +12,7 @@ pub enum CatalogError {
     Internal(#[from] anyhow::Error),
 }
 
-pub trait CatalogPort {
+pub trait CatalogPort: Debug + Send + Sync {
     fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError>;
 
     fn get_current_state(

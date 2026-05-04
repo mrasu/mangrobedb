@@ -42,6 +42,9 @@ message GetCurrentStateRequest {
   string table_name = 1;
   int64 stream_id = 2;
   // Optional filter. If empty, returns all partitions.
+  // TODO: current reader-side mock pruning cannot precisely express open-ended
+  // partition predicates such as `posted_at > ...` through this repeated field
+  // alone, because the empty case also means "all partitions".
   repeated google.protobuf.Timestamp partition_times = 3;
 }
 

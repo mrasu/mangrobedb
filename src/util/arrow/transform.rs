@@ -5,10 +5,10 @@ use arrow::array::{
 use arrow::datatypes::{DataType, TimeUnit};
 use thiserror::Error;
 
-const SECONDS_PER_HOUR: i64 = 60 * 60;
-const MILLIS_PER_HOUR: i64 = SECONDS_PER_HOUR * 1_000;
-const MICROS_PER_HOUR: i64 = MILLIS_PER_HOUR * 1_000;
-const NANOS_PER_HOUR: i64 = MICROS_PER_HOUR * 1_000;
+use crate::util::time::{
+    truncate_microsecond_to_hour, truncate_millisecond_to_hour, truncate_nanosecond_to_hour,
+    truncate_second_to_hour,
+};
 
 #[derive(Debug, Error)]
 #[error("failed to transform")]
@@ -26,7 +26,7 @@ pub fn create_hour_array<T: Array + ?Sized>(
             array
                 .values()
                 .iter()
-                .map(|value| truncate_to_hour(*value, SECONDS_PER_HOUR) * 1_000_000)
+                .map(|value| truncate_second_to_hour(*value) * 1_000_000)
                 .collect()
         }
         DataType::Timestamp(TimeUnit::Millisecond, _) => {
@@ -37,7 +37,7 @@ pub fn create_hour_array<T: Array + ?Sized>(
             array
                 .values()
                 .iter()
-                .map(|value| truncate_to_hour(*value, MILLIS_PER_HOUR) * 1_000)
+                .map(|value| truncate_millisecond_to_hour(*value) * 1_000)
                 .collect()
         }
         DataType::Timestamp(TimeUnit::Microsecond, _) => {
@@ -48,7 +48,7 @@ pub fn create_hour_array<T: Array + ?Sized>(
             array
                 .values()
                 .iter()
-                .map(|value| truncate_to_hour(*value, MICROS_PER_HOUR))
+                .map(|value| truncate_microsecond_to_hour(*value))
                 .collect()
         }
         DataType::Timestamp(TimeUnit::Nanosecond, _) => {
@@ -59,7 +59,7 @@ pub fn create_hour_array<T: Array + ?Sized>(
             array
                 .values()
                 .iter()
-                .map(|value| truncate_to_hour(*value, NANOS_PER_HOUR) / 1_000)
+                .map(|value| truncate_nanosecond_to_hour(*value) / 1_000)
                 .collect()
         }
         _ => {
@@ -68,8 +68,4 @@ pub fn create_hour_array<T: Array + ?Sized>(
     };
 
     Ok(TimestampMicrosecondArray::from(values))
-}
-
-fn truncate_to_hour(value: i64, units_per_hour: i64) -> i64 {
-    value.div_euclid(units_per_hour) * units_per_hour
 }

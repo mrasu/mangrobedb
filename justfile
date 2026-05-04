@@ -10,4 +10,4 @@ client-query:
     cargo run --bin client_query
 
 client-query-with-sql sql:
-    cargo run --bin client_query -- --sql '{{sql}}'
+    cargo run --bin client_query -- --sql "{{sql}}"
