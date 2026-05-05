@@ -2962,6 +2962,7 @@ dependencies = [
  "anyhow",
  "arrow",
  "arrow-flight",
+ "async-fs",
  "async-trait",
  "chrono",
  "clap",

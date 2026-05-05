@@ -13,7 +13,7 @@ pub trait ObjectStorePort {
         local_temp_path: &Path,
     ) -> Result<(), Error>;
 
-    // TODO: remove. After accessible anywhere?
+    // TODO: remove. After accessible from anywhere?
     fn is_accessible(&self, bucket: &str) -> bool;
 
     fn object_store(&self) -> Arc<dyn ObjectStore>;

@@ -31,7 +31,7 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
         }
     }
 
-    pub fn import(
+    pub async fn import(
         &self,
         table_name: &str,
         batches: Vec<RecordBatch>,
@@ -55,13 +55,13 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
         let file_batch =
             importing_records.to_file_batch(self.common_ports.uuid_generator.as_ref())?;
 
-        self.upload(&file_batch)?;
+        self.upload(&file_batch).await?;
 
         Ok(())
     }
 
     // TODO: replace with flusher.
-    fn upload(&self, file_batch: &FileBatch) -> Result<(), ApplicationError> {
+    async fn upload(&self, file_batch: &FileBatch) -> Result<(), ApplicationError> {
         let table_schema = file_batch.schema();
         let table_name = &table_schema.table_name;
         let table_bucket = &table_schema.bucket;
@@ -71,7 +71,7 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
         let mut files_by_partition_time: BTreeMap<i64, Vec<AddFile>> = BTreeMap::new();
 
         for file_record in file_batch.file_records() {
-            let write_result = write_vortex_file(file_record)?;
+            let write_result = write_vortex_file(file_record).await?;
             let path = file_record.path()?;
             self.object_store_port.upload(
                 table_name,

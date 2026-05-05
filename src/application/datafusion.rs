@@ -1,4 +1,4 @@
 pub mod column;
-mod partition_extractor;
+mod partition;
 pub mod sql;
 pub mod table_provider;

@@ -7,7 +7,6 @@ use futures::{StreamExt, TryStreamExt};
 use tonic::transport::Channel;
 
 const DEFAULT_ADDR: &str = "127.0.0.1:50051";
-const DEFAULT_SQL: &str = "select * from dummy_table";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,7 +21,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = client.do_get(ticket).await?;
     let stream = response.into_inner();
-    let mut record_batches = FlightRecordBatchStream::new_from_flight_data(stream.map_err(Into::into));
+    let mut record_batches =
+        FlightRecordBatchStream::new_from_flight_data(stream.map_err(Into::into));
 
     let mut output = Vec::new();
     while let Some(batch) = record_batches.next().await {
@@ -43,6 +43,6 @@ struct Config {
     #[arg(long, default_value = DEFAULT_ADDR)]
     addr: String,
 
-    #[arg(long, default_value = DEFAULT_SQL)]
+    #[arg(long)]
     sql: String,
 }

@@ -2,7 +2,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::application::datafusion::column::INTERNAL_COLUMN_PREFIX;
-use crate::application::datafusion::partition_extractor::extract_partition_times;
+use crate::application::datafusion::partition::extract_partition_times;
 use crate::domain::port::catalog::{CatalogFile, CatalogPort};
 use crate::domain::table::Table;
 use arrow::datatypes::{Field, Schema, SchemaRef};

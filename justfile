@@ -6,8 +6,11 @@ run:
 client-import:
     cargo run --bin client_import
 
-client-query:
-    cargo run --bin client_query
+default_sql := "select * from dummy_table"
 
-client-query-with-sql sql:
+client-query sql=default_sql:
     cargo run --bin client_query -- --sql "{{sql}}"
+
+fmt:
+    cargo fmt
+    cargo clippy --fix --allow-dirty

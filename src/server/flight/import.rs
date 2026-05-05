@@ -36,6 +36,7 @@ pub async fn handle_do_put(
 
     import_service
         .import(&table_name, batches)
+        .await
         .map_err(import_error_to_status)?;
 
     Ok(())
