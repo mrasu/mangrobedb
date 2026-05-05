@@ -1,3 +1,4 @@
+use crate::application::datafusion::column::{INTERNAL_COLUMN_PREFIX, to_internal_column_name};
 use crate::domain::table_mapping::{MappingStrategy, TableMapping};
 use anyhow::anyhow;
 use arrow::array::{Int32Array, TimestampMicrosecondArray};
@@ -5,8 +6,6 @@ use arrow::datatypes::{DataType, Field, Schema};
 use arrow::record_batch::RecordBatch;
 use std::marker::PhantomData;
 use thiserror::Error;
-
-const INTERNAL_COLUMN_PREFIX: &str = "__mangrobe__";
 
 #[derive(Debug, Error)]
 pub enum TableSchemaError {
@@ -191,9 +190,9 @@ impl<T> ColumnDefinition<T> {
 }
 
 impl<T> ColumnDefinition<T> {
-    pub fn new(name: &str, data_type: DataType) -> Self {
+    pub fn new(name: impl Into<String>, data_type: DataType) -> Self {
         Self {
-            name: name.to_string(),
+            name: name.into(),
             data_type,
             _marker: PhantomData,
         }
@@ -232,7 +231,7 @@ pub fn initial_dummy_table_schema() -> TableSchema {
         ],
         TableMapping::new(
             PublicColumnDefinition::new("stream_id", DataType::Int32),
-            InternalColumnDefinition::new("__mangrobe__stream_id", DataType::Int32),
+            InternalColumnDefinition::new(to_internal_column_name("stream_id"), DataType::Int32),
             MappingStrategy::Copy,
         ),
         TableMapping::new(
@@ -241,7 +240,7 @@ pub fn initial_dummy_table_schema() -> TableSchema {
                 DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
             ),
             InternalColumnDefinition::new(
-                "__mangrobe__partition_time",
+                to_internal_column_name("partition_time"),
                 DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
             ),
             MappingStrategy::ToHour,

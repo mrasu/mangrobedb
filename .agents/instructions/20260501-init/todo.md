@@ -26,9 +26,8 @@ Before implementing a section, read the listed files and ask for explicit user d
 - [x] Add Flight `DoGet` query handling: decode SQL from the ticket and stream Arrow result batches.
 - [x] Make `vortex-datafusion` work minimally: assume `select * from dummy_table;`, read only the first registered file, and return its data without error handling.
 - [x] Add the catalog-aware DataFusion table provider for `dummy_table`, exposing the unified user-visible schema and completing partition pruning.
-- [ ] Build query planning/validation: use DataFusion, allow supported `SELECT` over `dummy_table`, and reject out-of-scope SQL and `__mangrobe__*` references.
+- [x] Build query planning/validation: use DataFusion, allow supported `SELECT` over `dummy_table`, and reject out-of-scope SQL and `__mangrobe__*` references.
 - [ ] Implement reader catalog statistics pruning: call mock `GetFileInfo` and prune by numeric/timestamp statistics after partition pruning.
-- [ ] Hand selected Vortex files to `vortex-datafusion`, resolve table-relative paths through the storage prefix, and keep query visibility based on successful `AddFiles`.
 
 ## 3. Use Mangrobe API
 - [ ] Use Mangrobe without mock (no spec yet)

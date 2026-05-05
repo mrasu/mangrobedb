@@ -196,9 +196,9 @@ function names for this conversion are implementation details.
 
 ## SQL Validation
 
-SQL validation is performed after DataFusion parses and plans the SQL. The
-initial implementation should inspect the DataFusion logical plan and
-expressions rather than implementing a separate SQL parser for mangrobe-specific
+SQL validation is performed as part of the DataFusion-backed query-planning
+flow. The initial implementation should rely on DataFusion parsing and planning
+rather than implementing a separate SQL parser for mangrobe-specific
 validation.
 
 The validator should reject only SQL features that affect mangrobe's table

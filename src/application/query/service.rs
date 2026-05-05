@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::application::datafusion::sql::execute_sql;
 use crate::application::datafusion::table_provider::DummyTableProvider;
 use crate::application::error::{ApplicationError, ApplicationUserError};
 use crate::application::query::QueryOutput;
@@ -41,13 +42,16 @@ impl<C: CatalogPort + 'static, O: ObjectStorePort> QueryService<C, O> {
         let store_url = url::Url::parse(&format!("s3://{}", table_bucket))?;
         ctx.register_object_store(&store_url, self.object_store_port.object_store());
 
-        let table_provider = Arc::new(DummyTableProvider::new(
+        let table_provider = Arc::new(DummyTableProvider::try_new(
             table,
             Arc::clone(&self.catalog_port),
-        ));
+        )?);
         ctx.register_table(DUMMY_TABLE, table_provider)?;
 
-        let batches = ctx.sql(sql).await?.collect().await?;
+        let batches = execute_sql(&ctx, sql, &[DUMMY_TABLE])
+            .await?
+            .collect()
+            .await?;
         let schema = batches
             .first()
             .map(|batch| batch.schema())

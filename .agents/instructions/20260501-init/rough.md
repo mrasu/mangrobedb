@@ -248,7 +248,7 @@ Known decisions so far:
   side does not define a separate `VortexReader` abstraction.
 - `GetCurrentState` is partition-aware and can be limited by requested
   partition times.
-- SQL validation is based on DataFusion logical plan inspection.
+- SQL validation is performed as part of the DataFusion-backed query-planning flow.
 - DataFusion-supported projections, filters, and aggregate functions are
   allowed when they reference only `dummy_table` user-visible columns and avoid
   explicitly rejected SQL features.

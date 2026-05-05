@@ -1,6 +1,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use crate::application::datafusion::column::INTERNAL_COLUMN_PREFIX;
 use crate::application::datafusion::partition_extractor::extract_partition_times;
 use crate::domain::port::catalog::{CatalogFile, CatalogPort};
 use crate::domain::table::Table;
@@ -30,12 +31,13 @@ pub struct DummyTableProvider<C: CatalogPort> {
 }
 
 impl<C: CatalogPort> DummyTableProvider<C> {
-    pub fn new(table: Table, catalog_port: Arc<C>) -> Self {
-        Self {
-            schema: Arc::new(build_public_schema(&table)),
+    pub fn try_new(table: Table, catalog_port: Arc<C>) -> DataFusionResult<Self> {
+        let schema = Arc::new(build_public_schema(&table)?);
+        Ok(Self {
+            schema,
             table,
             catalog_port,
-        }
+        })
     }
 }
 
@@ -111,13 +113,18 @@ fn resolve_catalog_paths(table: &Table, files: &[CatalogFile]) -> Vec<String> {
     files.iter().map(|file| table.build_path(file)).collect()
 }
 
-fn build_public_schema(table: &Table) -> Schema {
-    let fields: Vec<_> = table
-        .schema
-        .public_columns()
-        .iter()
-        .map(|column| Field::new(&column.name, column.data_type().clone(), true))
-        .collect();
+fn build_public_schema(table: &Table) -> DataFusionResult<Schema> {
+    let mut fields = Vec::with_capacity(table.schema.public_columns().len());
+    for column in table.schema.public_columns() {
+        if column.name.starts_with(INTERNAL_COLUMN_PREFIX) {
+            return Err(DataFusionError::Plan(format!(
+                "public schema contains an internal column: {}",
+                column.name
+            )));
+        }
 
-    Schema::new(fields)
+        fields.push(Field::new(&column.name, column.data_type().clone(), true));
+    }
+
+    Ok(Schema::new(fields))
 }
