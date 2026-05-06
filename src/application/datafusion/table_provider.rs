@@ -9,6 +9,7 @@ use crate::domain::table::Table;
 use arrow::datatypes::{Field, Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion::catalog::Session;
+use datafusion::common::project_schema;
 use datafusion::datasource::TableProvider;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
@@ -17,6 +18,7 @@ use datafusion::error::DataFusionError;
 use datafusion::error::Result as DataFusionResult;
 use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
 use datafusion::physical_plan::ExecutionPlan;
+use datafusion::physical_plan::empty::EmptyExec;
 use tracing::debug;
 use vortex::VortexSessionDefault;
 use vortex::session::VortexSession;
@@ -64,10 +66,9 @@ impl<C: CatalogPort + 'static> TableProvider for DummyTableProvider<C> {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
-        let partition_times = extract_partition_times(&self.table, filters)?.ok_or(
-            // TODO: return zero rows
-            DataFusionError::Execution("no partition".to_string()),
-        )?;
+        let Some(partition_times) = extract_partition_times(&self.table, filters)? else {
+            return self.build_empty_plan(projection);
+        };
 
         let files = self
             .catalog_port
@@ -82,11 +83,7 @@ impl<C: CatalogPort + 'static> TableProvider for DummyTableProvider<C> {
         let paths = resolve_catalog_paths(&self.table, &pruned_files);
         debug!(table_name = %self.table.schema.table_name, ?paths, "selected query files");
         if paths.is_empty() {
-            // TODO: return zero rows
-            return Err(DataFusionError::Execution(format!(
-                "no registered files for {}",
-                self.table.schema.table_name
-            )));
+            return self.build_empty_plan(projection);
         }
 
         let table_paths = paths
@@ -114,6 +111,14 @@ impl<C: CatalogPort + 'static> TableProvider for DummyTableProvider<C> {
 }
 
 impl<C: CatalogPort + 'static> DummyTableProvider<C> {
+    fn build_empty_plan(
+        &self,
+        projection: Option<&Vec<usize>>,
+    ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
+        let projected_schema = project_schema(&self.schema, projection)?;
+        Ok(Arc::new(EmptyExec::new(projected_schema)))
+    }
+
     fn prune_files(
         &self,
         candidate_files: &[CatalogFile],
