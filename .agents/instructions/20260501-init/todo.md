@@ -27,7 +27,7 @@ Before implementing a section, read the listed files and ask for explicit user d
 - [x] Make `vortex-datafusion` work minimally: assume `select * from dummy_table;`, read only the first registered file, and return its data without error handling.
 - [x] Add the catalog-aware DataFusion table provider for `dummy_table`, exposing the unified user-visible schema and completing partition pruning.
 - [x] Build query planning/validation: use DataFusion, allow supported `SELECT` over `dummy_table`, and reject out-of-scope SQL and `__mangrobe__*` references.
-- [ ] Implement reader catalog statistics pruning: call mock `GetFileInfo` and prune by numeric/timestamp statistics after partition pruning.
+- [x] Implement reader catalog statistics pruning: call mock `GetFileInfo` and prune by numeric/timestamp statistics after partition pruning.
 
 ## 3. Use Mangrobe API
 - [ ] Use Mangrobe without mock (no spec yet)

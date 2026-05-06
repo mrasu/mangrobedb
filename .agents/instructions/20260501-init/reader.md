@@ -113,8 +113,14 @@ First, partition pruning:
 
 Second, file statistics pruning:
 
-- Fetch min/max statistics from the mock mangrobe metadata.
+- Fetch min/max statistics from the mock mangrobe metadata with
+  `GetFileInfo`.
+- Call `GetFileInfo` in batches of at most 100 files.
+- Apply pruning to each fetched batch before processing the next batch, so the
+  flow can later be parallelized as decide -> fetch -> return.
 - Use numeric and timestamp min/max statistics to skip files.
+- `min` and `max` statistics are optional. If only one side is present, use the
+  available side when it can prove that the file cannot match.
 
 Filter expressions that cannot be used for mangrobe catalog pruning are still
 valid when DataFusion can plan and execute them. They are applied by DataFusion
@@ -226,6 +232,9 @@ For the initial MVP, these calls are represented by a mock:
 
 - `GetCurrentState(table_name, stream_id=0, partition_times)`
 - `GetFileInfo(file_ids, included_column_statistics_types, included_file_metadata_types)`
+
+The reader calls `GetFileInfo` for at most 100 files at a time to keep metadata
+responses bounded.
 
 `GetCurrentStateRequest.partition_times` is optional by convention. If the
 repeated field is empty, the mock returns all visible partitions for the stream.

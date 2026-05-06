@@ -2,6 +2,7 @@ use std::any::Any;
 use std::sync::Arc;
 
 use crate::application::datafusion::column::INTERNAL_COLUMN_PREFIX;
+use crate::application::datafusion::file_pruning::prune_files_by_statistics;
 use crate::application::datafusion::partition::extract_partition_times;
 use crate::domain::port::catalog::{CatalogFile, CatalogPort};
 use crate::domain::table::Table;
@@ -22,6 +23,7 @@ use vortex::session::VortexSession;
 use vortex_datafusion::VortexFormat;
 
 const DEFAULT_STREAM_ID: i32 = 0;
+const GET_FILE_INFO_BATCH_SIZE: usize = 100;
 
 #[derive(Debug)]
 pub struct DummyTableProvider<C: CatalogPort> {
@@ -75,7 +77,9 @@ impl<C: CatalogPort + 'static> TableProvider for DummyTableProvider<C> {
                 &partition_times,
             )
             .map_err(|error| DataFusionError::External(Box::new(error)))?;
-        let paths = resolve_catalog_paths(&self.table, &files);
+
+        let pruned_files = self.prune_files(&files, filters)?;
+        let paths = resolve_catalog_paths(&self.table, &pruned_files);
         debug!(table_name = %self.table.schema.table_name, ?paths, "selected query files");
         if paths.is_empty() {
             // TODO: return zero rows
@@ -106,6 +110,32 @@ impl<C: CatalogPort + 'static> TableProvider for DummyTableProvider<C> {
             .iter()
             .map(|_| TableProviderFilterPushDown::Inexact)
             .collect())
+    }
+}
+
+impl<C: CatalogPort + 'static> DummyTableProvider<C> {
+    fn prune_files(
+        &self,
+        candidate_files: &[CatalogFile],
+        filters: &[Expr],
+    ) -> DataFusionResult<Vec<CatalogFile>> {
+        let chunked_files = candidate_files.chunks(GET_FILE_INFO_BATCH_SIZE);
+        let pruned_files = chunked_files
+            .map(|files| {
+                prune_files_by_statistics(
+                    self.catalog_port.as_ref(),
+                    &self.table.schema.table_name,
+                    files,
+                    filters,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| DataFusionError::External(Box::new(error)))?
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
+
+        Ok(pruned_files)
     }
 }
 

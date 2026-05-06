@@ -67,8 +67,8 @@ struct PersistedFileStatistics {
 #[derive(Debug, Serialize, Deserialize)]
 struct PersistedColumnStatistics {
     column_name: String,
-    min: PersistedStatisticValue,
-    max: PersistedStatisticValue,
+    min: Option<PersistedStatisticValue>,
+    max: Option<PersistedStatisticValue>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -212,16 +212,22 @@ impl PersistedColumnStatistics {
     fn into_column_statistics(self) -> ColumnStatistics {
         ColumnStatistics {
             column_name: self.column_name,
-            min: self.min.into_statistic_value(),
-            max: self.max.into_statistic_value(),
+            min: self.min.map(PersistedStatisticValue::into_statistic_value),
+            max: self.max.map(PersistedStatisticValue::into_statistic_value),
         }
     }
 
     fn from_column_statistics(value: &ColumnStatistics) -> Self {
         Self {
             column_name: value.column_name.clone(),
-            min: PersistedStatisticValue::from_statistic_value(&value.min),
-            max: PersistedStatisticValue::from_statistic_value(&value.max),
+            min: value
+                .min
+                .as_ref()
+                .map(PersistedStatisticValue::from_statistic_value),
+            max: value
+                .max
+                .as_ref()
+                .map(PersistedStatisticValue::from_statistic_value),
         }
     }
 }

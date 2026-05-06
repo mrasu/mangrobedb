@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::domain::statistics::FileStatistics;
+use crate::domain::statistics::{ColumnStatistics, FileStatistics};
 use crate::domain::table_schema::TableSchema;
 use thiserror::Error;
 
@@ -21,6 +21,12 @@ pub trait CatalogPort: Debug + Send + Sync {
         stream_id: i32,
         partition_times: &[i64],
     ) -> Result<Vec<CatalogFile>, CatalogError>;
+
+    fn get_file_info(
+        &self,
+        table_name: &str,
+        file_ids: &[String],
+    ) -> Result<std::collections::HashMap<String, CatalogFileInfo>, CatalogError>;
 
     fn update_table_schema(
         &self,
@@ -50,10 +56,28 @@ pub struct AddFile {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct CatalogFile {
+    pub file_id: String,
     pub stream_id: i32,
     pub partition_time: i64,
     pub path: String,
     pub size: u64,
-    pub column_statistics: FileStatistics,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct CatalogFileInfo {
+    pub file_id: String,
+    pub path: String,
+    pub size: u64,
+    pub column_statistics: Vec<ColumnStatistics>,
+    pub file_metadata: FileMetadata,
+    pub row_count: i64,
+}
+
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+pub struct FileMetadata {
+    pub parquet_metadata: Option<Vec<u8>>,
 }

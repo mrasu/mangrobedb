@@ -419,8 +419,8 @@ FileStatistics
 ColumnStatistics
   column_name: ColumnName
   data_type: Arrow DataType
-  min: StatisticsValue
-  max: StatisticsValue
+  min: optional StatisticsValue
+  max: optional StatisticsValue
 
 StatisticsValue
   Int8(i8)

@@ -1,5 +1,5 @@
 use crate::domain::port::catalog::{
-    AddFile, AddFilesEntry, CatalogError, CatalogFile, CatalogPort,
+    AddFile, AddFilesEntry, CatalogError, CatalogFile, CatalogFileInfo, CatalogPort, FileMetadata,
 };
 use crate::domain::statistics::FileStatistics;
 use crate::domain::table_schema::{DUMMY_TABLE, TableSchema, initial_dummy_table_schema};
@@ -12,6 +12,7 @@ use std::sync::Mutex;
 use tracing::debug;
 
 const DEFAULT_STATE_PATH: &str = "./data/mock/state.json";
+const FILE_ID_PREFIX: &str = "id:";
 
 #[derive(Debug)]
 pub struct MockCatalog {
@@ -146,6 +147,55 @@ impl CatalogPort for MockCatalog {
         Ok(files)
     }
 
+    fn get_file_info(
+        &self,
+        table_name: &str,
+        file_ids: &[String],
+    ) -> Result<HashMap<String, CatalogFileInfo>, CatalogError> {
+        debug!(
+            table_name,
+            ?file_ids,
+            "getting file info from mock catalog port"
+        );
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("mock catalog port state lock is poisoned"))?;
+
+        let table = state
+            .tables
+            .get(table_name)
+            .ok_or_else(|| CatalogError::TableNotFound {
+                table_name: table_name.to_string(),
+            })?;
+        let paths = file_ids
+            .iter()
+            .filter_map(|file_id| file_id_to_path(file_id))
+            .collect::<Vec<_>>();
+
+        let file_info = table
+            .files
+            .iter()
+            .filter(|file| paths.contains(&file.path.as_str()))
+            .map(|file| {
+                let file_id = build_file_id(&file.path);
+                (
+                    file_id.clone(),
+                    CatalogFileInfo {
+                        file_id,
+                        path: file.path.clone(),
+                        size: file.size,
+                        column_statistics: file.column_statistics.columns.clone(),
+                        file_metadata: FileMetadata::default(),
+                        row_count: file.column_statistics.row_count as i64,
+                    },
+                )
+            })
+            .collect();
+
+        Ok(file_info)
+    }
+
     fn update_table_schema(
         &self,
         table_name: &str,
@@ -229,13 +279,21 @@ fn build_mock_catalog_file(stream_id: i32, partition_time: i64, file: AddFile) -
 impl From<MockCatalogFile> for CatalogFile {
     fn from(value: MockCatalogFile) -> Self {
         Self {
+            file_id: build_file_id(&value.path),
             stream_id: value.stream_id,
             partition_time: value.partition_time,
             path: value.path,
             size: value.size,
-            column_statistics: value.column_statistics,
         }
     }
+}
+
+fn build_file_id(path: &str) -> String {
+    format!("{FILE_ID_PREFIX}{path}")
+}
+
+fn file_id_to_path(file_id: &str) -> Option<&str> {
+    file_id.strip_prefix(FILE_ID_PREFIX)
 }
 
 impl MockState {

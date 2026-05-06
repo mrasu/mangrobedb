@@ -12,11 +12,11 @@ pub struct FileStatistics {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ColumnStatistics {
     pub column_name: String,
-    pub min: StatisticValue,
-    pub max: StatisticValue,
+    pub min: Option<StatisticValue>,
+    pub max: Option<StatisticValue>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum StatisticValue {
     Int32(i32),
     Int64(i64),
@@ -67,24 +67,24 @@ impl ColumnStatistics {
     fn calculate_int32(column_name: &str, array: &Int32Array) -> Option<Self> {
         Some(Self {
             column_name: column_name.to_string(),
-            min: StatisticValue::Int32(min(array)?),
-            max: StatisticValue::Int32(max(array)?),
+            min: min(array).map(StatisticValue::Int32),
+            max: max(array).map(StatisticValue::Int32),
         })
     }
 
     fn calculate_int64(column_name: &str, array: &Int64Array) -> Option<Self> {
         Some(Self {
             column_name: column_name.to_string(),
-            min: StatisticValue::Int64(min(array)?),
-            max: StatisticValue::Int64(max(array)?),
+            min: min(array).map(StatisticValue::Int64),
+            max: max(array).map(StatisticValue::Int64),
         })
     }
 
     fn calculate_float64(column_name: &str, array: &Float64Array) -> Option<Self> {
         Some(Self {
             column_name: column_name.to_string(),
-            min: StatisticValue::Float64(min(array)?),
-            max: StatisticValue::Float64(max(array)?),
+            min: min(array).map(StatisticValue::Float64),
+            max: max(array).map(StatisticValue::Float64),
         })
     }
 
@@ -94,8 +94,8 @@ impl ColumnStatistics {
     ) -> Option<Self> {
         Some(Self {
             column_name: column_name.to_string(),
-            min: StatisticValue::TimestampMicros(min(array)?),
-            max: StatisticValue::TimestampMicros(max(array)?),
+            min: min(array).map(StatisticValue::TimestampMicros),
+            max: max(array).map(StatisticValue::TimestampMicros),
         })
     }
 }
