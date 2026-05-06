@@ -1,7 +1,8 @@
 use crate::domain::port::catalog::{
-    AddFile, AddFilesEntry, CatalogError, CatalogFile, CatalogFileInfo, CatalogPort, FileMetadata,
+    AddFile, AddFilesEntry, CatalogError, CatalogFile, CatalogFileInfo, CatalogPort,
+    FileColumnStatisticsType, FileMetadata, FileMetadataType,
 };
-use crate::domain::statistics::FileStatistics;
+use crate::domain::statistics::{ColumnStatistics, FileStatistics};
 use crate::domain::table_schema::{DUMMY_TABLE, TableSchema, initial_dummy_table_schema};
 use crate::infrastructure::catalog::persisted::PersistedState;
 use anyhow::{Context, anyhow};
@@ -34,11 +35,12 @@ pub(super) struct MockTable {
 
 #[derive(Debug, Clone)]
 pub(super) struct MockCatalogFile {
-    pub(super) stream_id: i32,
+    pub(super) stream_id: i64,
     pub(super) partition_time: i64,
     pub(super) path: String,
     pub(super) size: u64,
     pub(super) column_statistics: FileStatistics,
+    pub(super) file_metadata: FileMetadata,
 }
 
 impl MockCatalog {
@@ -112,7 +114,7 @@ impl CatalogPort for MockCatalog {
     fn get_current_state(
         &self,
         table_name: &str,
-        stream_id: i32,
+        stream_id: i64,
         partition_times: &[i64],
     ) -> Result<Vec<CatalogFile>, CatalogError> {
         debug!(
@@ -151,6 +153,8 @@ impl CatalogPort for MockCatalog {
         &self,
         table_name: &str,
         file_ids: &[String],
+        included_column_statistics_types: &[FileColumnStatisticsType],
+        included_file_metadata_types: &[FileMetadataType],
     ) -> Result<HashMap<String, CatalogFileInfo>, CatalogError> {
         debug!(
             table_name,
@@ -185,8 +189,14 @@ impl CatalogPort for MockCatalog {
                         file_id,
                         path: file.path.clone(),
                         size: file.size,
-                        column_statistics: file.column_statistics.columns.clone(),
-                        file_metadata: FileMetadata::default(),
+                        column_statistics: filter_column_statistics(
+                            &file.column_statistics.columns,
+                            included_column_statistics_types,
+                        ),
+                        file_metadata: filter_file_metadata(
+                            &file.file_metadata,
+                            included_file_metadata_types,
+                        ),
                         row_count: file.column_statistics.row_count as i64,
                     },
                 )
@@ -223,8 +233,9 @@ impl CatalogPort for MockCatalog {
 
     fn add_files(
         &self,
+        _idempotency_key: &[u8],
         table_name: &str,
-        stream_id: i32,
+        stream_id: i64,
         entries: Vec<AddFilesEntry>,
     ) -> Result<(), CatalogError> {
         let mut state = self
@@ -247,7 +258,36 @@ impl CatalogPort for MockCatalog {
     }
 }
 
-fn append_add_files(table: &mut MockTable, stream_id: i32, entries: Vec<AddFilesEntry>) {
+fn filter_column_statistics(
+    columns: &[ColumnStatistics],
+    included_types: &[FileColumnStatisticsType],
+) -> Vec<ColumnStatistics> {
+    let include_min = included_types.contains(&FileColumnStatisticsType::Min);
+    let include_max = included_types.contains(&FileColumnStatisticsType::Max);
+
+    columns
+        .iter()
+        .map(|column| ColumnStatistics {
+            column_name: column.column_name.clone(),
+            min: include_min.then(|| column.min.clone()).flatten(),
+            max: include_max.then(|| column.max.clone()).flatten(),
+        })
+        .collect()
+}
+
+fn filter_file_metadata(
+    metadata: &FileMetadata,
+    included_types: &[FileMetadataType],
+) -> FileMetadata {
+    FileMetadata {
+        parquet_metadata: included_types
+            .contains(&FileMetadataType::ParquetMetadata)
+            .then(|| metadata.parquet_metadata.clone())
+            .flatten(),
+    }
+}
+
+fn append_add_files(table: &mut MockTable, stream_id: i64, entries: Vec<AddFilesEntry>) {
     for entry in entries {
         for file in entry.files {
             table.files.push(build_mock_catalog_file(
@@ -266,13 +306,14 @@ fn append_add_files(table: &mut MockTable, stream_id: i32, entries: Vec<AddFiles
     });
 }
 
-fn build_mock_catalog_file(stream_id: i32, partition_time: i64, file: AddFile) -> MockCatalogFile {
+fn build_mock_catalog_file(stream_id: i64, partition_time: i64, file: AddFile) -> MockCatalogFile {
     MockCatalogFile {
         stream_id,
         partition_time,
         path: file.path,
         size: file.size,
         column_statistics: file.column_statistics,
+        file_metadata: file.file_metadata,
     }
 }
 
@@ -280,7 +321,6 @@ impl From<MockCatalogFile> for CatalogFile {
     fn from(value: MockCatalogFile) -> Self {
         Self {
             file_id: build_file_id(&value.path),
-            stream_id: value.stream_id,
             partition_time: value.partition_time,
             path: value.path,
             size: value.size,

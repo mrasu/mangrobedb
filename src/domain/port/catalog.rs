@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use crate::domain::statistics::{ColumnStatistics, FileStatistics};
 use crate::domain::table_schema::TableSchema;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -18,7 +19,7 @@ pub trait CatalogPort: Debug + Send + Sync {
     fn get_current_state(
         &self,
         table_name: &str,
-        stream_id: i32,
+        stream_id: i64,
         partition_times: &[i64],
     ) -> Result<Vec<CatalogFile>, CatalogError>;
 
@@ -26,6 +27,8 @@ pub trait CatalogPort: Debug + Send + Sync {
         &self,
         table_name: &str,
         file_ids: &[String],
+        included_column_statistics_types: &[FileColumnStatisticsType],
+        included_file_metadata_types: &[FileMetadataType],
     ) -> Result<std::collections::HashMap<String, CatalogFileInfo>, CatalogError>;
 
     fn update_table_schema(
@@ -36,8 +39,9 @@ pub trait CatalogPort: Debug + Send + Sync {
 
     fn add_files(
         &self,
+        idempotency_key: &[u8],
         table_name: &str,
-        stream_id: i32,
+        stream_id: i64,
         entries: Vec<AddFilesEntry>,
     ) -> Result<(), CatalogError>;
 }
@@ -53,13 +57,13 @@ pub struct AddFile {
     pub path: String,
     pub size: u64,
     pub column_statistics: FileStatistics,
+    pub file_metadata: FileMetadata,
 }
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct CatalogFile {
     pub file_id: String,
-    pub stream_id: i32,
     pub partition_time: i64,
     pub path: String,
     pub size: u64,
@@ -76,7 +80,18 @@ pub struct CatalogFileInfo {
     pub row_count: i64,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileColumnStatisticsType {
+    Min,
+    Max,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileMetadataType {
+    ParquetMetadata,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct FileMetadata {
     pub parquet_metadata: Option<Vec<u8>>,

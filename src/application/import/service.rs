@@ -2,7 +2,9 @@ use crate::application::error::{ApplicationError, ApplicationUserError};
 use crate::application::import::importing_records::ImportingRecords;
 use crate::domain::common_ports::CommonPorts;
 use crate::domain::file_batch::FileBatch;
-use crate::domain::port::catalog::{AddFile, AddFilesEntry, CatalogError, CatalogPort};
+use crate::domain::port::catalog::{
+    AddFile, AddFilesEntry, CatalogError, CatalogPort, FileMetadata,
+};
 use crate::domain::port::object_store::ObjectStorePort;
 use crate::domain::table::Table;
 use crate::infrastructure::vortex::writer::write_vortex_file;
@@ -55,13 +57,19 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
         let file_batch =
             importing_records.to_file_batch(self.common_ports.uuid_generator.as_ref())?;
 
-        self.upload(&file_batch).await?;
+        let uuid = self.common_ports.uuid_generator.generate();
+        let idempotency_key = uuid.as_ref();
+        self.upload(idempotency_key, &file_batch).await?;
 
         Ok(())
     }
 
     // TODO: replace with flusher.
-    async fn upload(&self, file_batch: &FileBatch) -> Result<(), ApplicationError> {
+    async fn upload(
+        &self,
+        idempotency_key: &[u8],
+        file_batch: &FileBatch,
+    ) -> Result<(), ApplicationError> {
         let table_schema = file_batch.schema();
         let table_name = &table_schema.table_name;
         let table_bucket = &table_schema.bucket;
@@ -100,6 +108,7 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
                     path,
                     size: write_result.file_size,
                     column_statistics: write_result.statistics,
+                    file_metadata: FileMetadata::default(),
                 });
         }
 
@@ -112,7 +121,7 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
             })
             .collect();
         self.catalog_port
-            .add_files(table_name, stream_id, entries)?;
+            .add_files(idempotency_key, table_name, stream_id.into(), entries)?;
 
         Ok(())
     }

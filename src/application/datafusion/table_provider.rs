@@ -24,7 +24,7 @@ use vortex::VortexSessionDefault;
 use vortex::session::VortexSession;
 use vortex_datafusion::VortexFormat;
 
-const DEFAULT_STREAM_ID: i32 = 0;
+const DEFAULT_STREAM_ID: i64 = 0;
 const GET_FILE_INFO_BATCH_SIZE: usize = 100;
 
 #[derive(Debug)]

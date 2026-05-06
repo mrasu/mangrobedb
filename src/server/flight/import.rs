@@ -11,6 +11,7 @@ pub async fn handle_do_put(
     import_service: &SharedImportService,
     mut stream: Streaming<FlightData>,
 ) -> Result<(), FlightServerError> {
+    // TODO: receive idempotency_key for AddFiles.
     let first = stream
         .message()
         .await

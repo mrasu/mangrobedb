@@ -1,3 +1,4 @@
+use crate::domain::port::catalog::FileMetadata;
 use crate::domain::statistics::{ColumnStatistics, FileStatistics, StatisticValue};
 use crate::domain::table_mapping::{MappingStrategy, TableMapping};
 use crate::domain::table_schema::{InternalColumnDefinition, PublicColumnDefinition, TableSchema};
@@ -51,11 +52,13 @@ enum PersistedMappingStrategy {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PersistedCatalogFile {
-    stream_id: i32,
+    stream_id: i64,
     partition_time: i64,
     path: String,
     size: u64,
     column_statistics: PersistedFileStatistics,
+    #[serde(default)]
+    file_metadata: FileMetadata,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -168,6 +171,7 @@ impl PersistedCatalogFile {
             path: self.path,
             size: self.size,
             column_statistics: self.column_statistics.into_file_statistics(),
+            file_metadata: self.file_metadata,
         }
     }
 
@@ -180,6 +184,7 @@ impl PersistedCatalogFile {
             column_statistics: PersistedFileStatistics::from_file_statistics(
                 &file.column_statistics,
             ),
+            file_metadata: file.file_metadata.clone(),
         }
     }
 }

@@ -28,7 +28,7 @@ service InformationSchemaService {
 
 // IdempotencyKey must be unique across all methods
 message IdempotencyKey {
-  // Must be shorter than 16 byte
+  // Must be 16 bytes or shorter.
   bytes key = 1;
 }
 
@@ -116,9 +116,11 @@ message CommittedFile {
 }
 
 message GetFileInfoRequest {
-  repeated string file_ids = 1;
-  repeated FileColumnStatisticsType included_column_statistics_types = 2;
-  repeated FileMetadataType included_file_metadata_types = 3;
+  string table_name = 1;
+  repeated string file_ids = 2;
+
+  repeated FileColumnStatisticsType included_column_statistics_types = 3;
+  repeated FileMetadataType included_file_metadata_types = 4;
 }
 
 enum FileColumnStatisticsType {

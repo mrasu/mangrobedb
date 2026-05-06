@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::domain::port::catalog::CatalogError;
-use crate::domain::port::catalog::{CatalogFile, CatalogFileInfo, CatalogPort};
+use crate::domain::port::catalog::{
+    CatalogFile, CatalogFileInfo, CatalogPort, FileColumnStatisticsType,
+};
 use crate::domain::statistics::{ColumnStatistics, StatisticValue};
 use datafusion::logical_expr::{Between, BinaryExpr, Expr, Operator};
 use datafusion::scalar::ScalarValue;
@@ -16,7 +18,12 @@ pub(crate) fn prune_files_by_statistics<C: CatalogPort>(
         .iter()
         .map(|file| file.file_id.clone())
         .collect::<Vec<_>>();
-    let file_info_by_id = catalog_port.get_file_info(table_name, &file_ids)?;
+    let file_info_by_id = catalog_port.get_file_info(
+        table_name,
+        &file_ids,
+        &[FileColumnStatisticsType::Min, FileColumnStatisticsType::Max],
+        &[],
+    )?;
 
     Ok(files
         .iter()
