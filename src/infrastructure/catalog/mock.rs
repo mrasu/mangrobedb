@@ -1,6 +1,7 @@
 use crate::domain::port::catalog::{
-    AddFile, AddFilesEntry, CatalogError, CatalogFile, CatalogFileInfo, CatalogPort,
-    FileColumnStatisticsType, FileMetadata, FileMetadataType,
+    AddFile, AddFilesEntry, BoundInclusivity, CatalogError, CatalogFile, CatalogFileInfo,
+    CatalogPort, FileColumnStatisticsType, FileMetadata, FileMetadataType, PartitionTimeBound,
+    PartitionTimeFilter, PartitionTimePredicate, PartitionTimeRange,
 };
 use crate::domain::statistics::{ColumnStatistics, FileStatistics};
 use crate::domain::table_schema::{DUMMY_TABLE, TableSchema, initial_dummy_table_schema};
@@ -115,12 +116,12 @@ impl CatalogPort for MockCatalog {
         &self,
         table_name: &str,
         stream_id: i64,
-        partition_times: &[i64],
+        partition_time_filter: &PartitionTimeFilter,
     ) -> Result<Vec<CatalogFile>, CatalogError> {
         debug!(
             table_name,
             stream_id,
-            ?partition_times,
+            ?partition_time_filter,
             "getting current state from mock catalog port"
         );
         let state = self
@@ -140,7 +141,7 @@ impl CatalogPort for MockCatalog {
             .iter()
             .filter(|file| file.stream_id == stream_id)
             .filter(|file| {
-                partition_times.is_empty() || partition_times.contains(&file.partition_time)
+                partition_time_matches(file.partition_time, partition_time_filter)
             })
             .cloned()
             .map(Into::into)
@@ -197,7 +198,6 @@ impl CatalogPort for MockCatalog {
                             &file.file_metadata,
                             included_file_metadata_types,
                         ),
-                        row_count: file.column_statistics.row_count as i64,
                     },
                 )
             })
@@ -284,6 +284,49 @@ fn filter_file_metadata(
             .contains(&FileMetadataType::ParquetMetadata)
             .then(|| metadata.parquet_metadata.clone())
             .flatten(),
+    }
+}
+
+fn partition_time_matches(partition_time: i64, filter: &PartitionTimeFilter) -> bool {
+    filter.predicates.is_empty()
+        || filter
+            .predicates
+            .iter()
+            .any(|predicate| partition_time_matches_predicate(partition_time, predicate))
+}
+
+fn partition_time_matches_predicate(
+    partition_time: i64,
+    predicate: &PartitionTimePredicate,
+) -> bool {
+    match predicate {
+        PartitionTimePredicate::In(times) => times.contains(&partition_time),
+        PartitionTimePredicate::Range(range) => partition_time_matches_range(partition_time, range),
+    }
+}
+
+fn partition_time_matches_range(partition_time: i64, range: &PartitionTimeRange) -> bool {
+    range
+        .lower
+        .as_ref()
+        .is_none_or(|bound| lower_bound_matches(partition_time, bound))
+        && range
+            .upper
+            .as_ref()
+            .is_none_or(|bound| upper_bound_matches(partition_time, bound))
+}
+
+fn lower_bound_matches(partition_time: i64, bound: &PartitionTimeBound) -> bool {
+    match bound.inclusivity {
+        BoundInclusivity::Inclusive => partition_time >= bound.time,
+        BoundInclusivity::Exclusive => partition_time > bound.time,
+    }
+}
+
+fn upper_bound_matches(partition_time: i64, bound: &PartitionTimeBound) -> bool {
+    match bound.inclusivity {
+        BoundInclusivity::Inclusive => partition_time <= bound.time,
+        BoundInclusivity::Exclusive => partition_time < bound.time,
     }
 }
 

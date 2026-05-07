@@ -426,7 +426,6 @@ mod tests {
                 max: max.map(StatisticValue::Int32),
             }],
             file_metadata: FileMetadata::default(),
-            row_count: 1,
         }
     }
 }

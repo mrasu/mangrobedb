@@ -20,7 +20,7 @@ pub trait CatalogPort: Debug + Send + Sync {
         &self,
         table_name: &str,
         stream_id: i64,
-        partition_times: &[i64],
+        partition_time_filter: &PartitionTimeFilter,
     ) -> Result<Vec<CatalogFile>, CatalogError>;
 
     fn get_file_info(
@@ -77,7 +77,35 @@ pub struct CatalogFileInfo {
     pub size: u64,
     pub column_statistics: Vec<ColumnStatistics>,
     pub file_metadata: FileMetadata,
-    pub row_count: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PartitionTimeFilter {
+    pub predicates: Vec<PartitionTimePredicate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PartitionTimePredicate {
+    In(Vec<i64>),
+    Range(PartitionTimeRange),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartitionTimeRange {
+    pub lower: Option<PartitionTimeBound>,
+    pub upper: Option<PartitionTimeBound>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartitionTimeBound {
+    pub time: i64,
+    pub inclusivity: BoundInclusivity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundInclusivity {
+    Inclusive,
+    Exclusive,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

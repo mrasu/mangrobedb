@@ -5,7 +5,6 @@ use arrow::record_batch::RecordBatch;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FileStatistics {
-    pub row_count: usize,
     pub columns: Vec<ColumnStatistics>,
 }
 
@@ -34,10 +33,7 @@ impl FileStatistics {
             .filter_map(|(field, array)| ColumnStatistics::calculate(field, array))
             .collect();
 
-        Self {
-            row_count: batch.num_rows(),
-            columns,
-        }
+        Self { columns }
     }
 }
 

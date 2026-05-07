@@ -66,7 +66,7 @@ impl<C: CatalogPort + 'static> TableProvider for DummyTableProvider<C> {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
-        let Some(partition_times) = extract_partition_times(&self.table, filters)? else {
+        let Some(partition_time_filter) = extract_partition_times(&self.table, filters)? else {
             return self.build_empty_plan(projection);
         };
 
@@ -75,7 +75,7 @@ impl<C: CatalogPort + 'static> TableProvider for DummyTableProvider<C> {
             .get_current_state(
                 &self.table.schema.table_name,
                 DEFAULT_STREAM_ID,
-                &partition_times,
+                &partition_time_filter,
             )
             .map_err(|error| DataFusionError::External(Box::new(error)))?;
 

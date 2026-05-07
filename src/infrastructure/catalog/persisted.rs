@@ -63,7 +63,6 @@ struct PersistedCatalogFile {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct PersistedFileStatistics {
-    row_count: usize,
     columns: Vec<PersistedColumnStatistics>,
 }
 
@@ -192,7 +191,6 @@ impl PersistedCatalogFile {
 impl PersistedFileStatistics {
     fn into_file_statistics(self) -> FileStatistics {
         FileStatistics {
-            row_count: self.row_count,
             columns: self
                 .columns
                 .into_iter()
@@ -203,7 +201,6 @@ impl PersistedFileStatistics {
 
     fn from_file_statistics(value: &FileStatistics) -> Self {
         Self {
-            row_count: value.row_count,
             columns: value
                 .columns
                 .iter()

@@ -42,10 +42,43 @@ message GetCurrentStateRequest {
   string table_name = 1;
   int64 stream_id = 2;
   // Optional filter. If empty, returns all partitions.
-  // TODO: current reader-side mock pruning cannot precisely express open-ended
-  // partition predicates such as `posted_at > ...` through this repeated field
-  // alone, because the empty case also means "all partitions".
-  repeated google.protobuf.Timestamp partition_times = 3;
+  PartitionTimeFilter partition_time_filter = 3;
+}
+
+message PartitionTimeFilter {
+  // Predicates are OR-ed.
+  repeated PartitionTimePredicate predicates = 1;
+}
+
+message PartitionTimePredicate {
+  oneof predicate {
+    PartitionTimeIn in = 1;
+    PartitionTimeRange range = 2;
+  }
+}
+
+message PartitionTimeIn {
+  // Times are OR-ed.
+  repeated google.protobuf.Timestamp times = 1;
+}
+
+message PartitionTimeRange {
+  // Bounds are AND-ed.
+  optional PartitionTimeBound lower = 1;
+  optional PartitionTimeBound upper = 2;
+}
+
+message PartitionTimeBound {
+  google.protobuf.Timestamp time = 1;
+  BoundInclusivity inclusivity = 2;
+}
+
+enum BoundInclusivity {
+  // Unspecified. Invalid value.
+  BOUND_INCLUSIVITY_UNSPECIFIED = 0;
+
+  BOUND_INCLUSIVITY_INCLUSIVE = 1;
+  BOUND_INCLUSIVITY_EXCLUSIVE = 2;
 }
 
 message GetCurrentStateResponse {
@@ -148,8 +181,6 @@ message FileInfoResponse {
   int64 size = 3;
   repeated FileColumnStatistics column_statistics = 4;
   FileMetadata file_metadata = 5;
-
-  int64 row_count = 6;
 }
 
 message FileColumnStatistics {
