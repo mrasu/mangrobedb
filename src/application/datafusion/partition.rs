@@ -47,13 +47,12 @@ pub(super) fn extract_partition_times(
 }
 
 fn range_to_predicate(range: TimeRange) -> PartitionTimePredicate {
-    if let (Some(start), Some(end)) = (range.start, range.end) {
-        if start.hour_micros == end.hour_micros
-            && start.inclusivity == BoundInclusivity::Inclusive
-            && end.inclusivity == BoundInclusivity::Inclusive
-        {
-            return PartitionTimePredicate::In(vec![start.hour_micros]);
-        }
+    if let (Some(start), Some(end)) = (range.start, range.end)
+        && start.hour_micros == end.hour_micros
+        && start.inclusivity == BoundInclusivity::Inclusive
+        && end.inclusivity == BoundInclusivity::Inclusive
+    {
+        return PartitionTimePredicate::In(vec![start.hour_micros]);
     }
 
     PartitionTimePredicate::Range(PartitionTimeRange {

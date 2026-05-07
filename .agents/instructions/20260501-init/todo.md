@@ -11,6 +11,10 @@ Before implementing a section, read the listed files and ask for explicit user d
 - `Complete Writer Semantics`: read `writer.md` and the server lifecycle notes
   in `development.md`. This section changes import success back to buffer
   acceptance and moves file visibility to background flush + `AddFiles`.
+- `Use Mangrobe API`: read `rough.md`, `development.md`, and
+  `mangrobe-integration.md`. This section replaces file metadata operations
+  with real Mangrobe API calls while keeping table schema metadata in
+  `half_mocked_state.json`.
 
 ## 1. Get Writer Working
 
@@ -30,7 +34,11 @@ Before implementing a section, read the listed files and ask for explicit user d
 - [x] Implement reader catalog statistics pruning: call mock `GetFileInfo` and prune by numeric/timestamp statistics after partition pruning.
 
 ## 3. Use Mangrobe API
-- [ ] Use Mangrobe without mock (no spec yet)
+
+- [x] Add the Mangrobe integration spec and split this section into implementation steps.
+- [x] Add the half-mocked `MangrobeCatalog`: load/save table schema metadata from `./data/mock/half_mocked_state.json` without touching `./data/mock/state.json`.
+- [x] Wire real Mangrobe API calls for `GetCurrentState`, `GetFileInfo`, and `AddFiles`, including partition-time and statistics conversions.
+- [x] Add configuration for the Mangrobe API database URL from YAML and environment variables.
 
 ## 4. Complete Writer Semantics
 

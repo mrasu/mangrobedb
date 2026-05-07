@@ -5,12 +5,11 @@ mod infrastructure;
 mod server;
 mod util;
 
-use std::net::SocketAddr;
-use std::path::PathBuf;
-
 use crate::app_config::AppConfig;
 use clap::Parser;
 use server::flight;
+use std::net::SocketAddr;
+use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
 
 const DEFAULT_ADDR: &str = "127.0.0.1:50051";

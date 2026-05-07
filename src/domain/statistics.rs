@@ -2,6 +2,8 @@ use arrow::array::{ArrayRef, Float64Array, Int32Array, Int64Array, TimestampMicr
 use arrow::compute::{max, min};
 use arrow::datatypes::{DataType, Field, TimeUnit};
 use arrow::record_batch::RecordBatch;
+use mangrobe_api_server::proto::StatisticsValue;
+use mangrobe_api_server::proto::statistics_value::Value;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FileStatistics {
@@ -21,6 +23,20 @@ pub enum StatisticValue {
     Int64(i64),
     Float64(f64),
     TimestampMicros(i64),
+}
+
+impl StatisticValue {
+    pub fn from_statistics_value(value: StatisticsValue) -> Option<Self> {
+        let Some(val) = value.value else {
+            return None;
+        };
+
+        let ret = match val {
+            Value::DoubleValue(val) => StatisticValue::Float64(val),
+        };
+
+        Some(ret)
+    }
 }
 
 impl FileStatistics {

@@ -38,12 +38,14 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
         table_name: &str,
         batches: Vec<RecordBatch>,
     ) -> Result<(), ApplicationError> {
-        let table = Table::load(self.catalog_port.as_ref(), table_name).map_err(|e| match e {
-            CatalogError::TableNotFound { table_name } => {
-                ApplicationError::User(ApplicationUserError::UnknownTable { table_name })
-            }
-            _ => e.into(),
-        })?;
+        let table = Table::load(self.catalog_port.as_ref(), table_name)
+            .await
+            .map_err(|e| match e {
+                CatalogError::TableNotFound { table_name } => {
+                    ApplicationError::User(ApplicationUserError::UnknownTable { table_name })
+                }
+                _ => e.into(),
+            })?;
         if !self.object_store_port.is_accessible(&table.schema.bucket) {
             return Err(ApplicationUserError::S3InaccessibleTable {
                 table_name: table.schema.table_name,
@@ -52,8 +54,9 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
         }
 
         let importing_records = ImportingRecords::try_new(table.schema, batches)?;
-        let importing_records =
-            importing_records.update_mangrobe_schema_if_required(&self.catalog_port)?;
+        let importing_records = importing_records
+            .update_mangrobe_schema_if_required(&self.catalog_port)
+            .await?;
         let file_batch =
             importing_records.to_file_batch(self.common_ports.uuid_generator.as_ref())?;
 
@@ -121,7 +124,8 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
             })
             .collect();
         self.catalog_port
-            .add_files(idempotency_key, table_name, stream_id.into(), entries)?;
+            .add_files(idempotency_key, table_name, stream_id.into(), entries)
+            .await?;
 
         Ok(())
     }

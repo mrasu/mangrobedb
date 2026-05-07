@@ -5,6 +5,7 @@ use std::path::Path;
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
     pub s3: S3Config,
+    pub database_url: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

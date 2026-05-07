@@ -8,7 +8,7 @@ use crate::domain::statistics::{ColumnStatistics, StatisticValue};
 use datafusion::logical_expr::{Between, BinaryExpr, Expr, Operator};
 use datafusion::scalar::ScalarValue;
 
-pub(crate) fn prune_files_by_statistics<C: CatalogPort>(
+pub(crate) async fn prune_files_by_statistics<C: CatalogPort>(
     catalog_port: &C,
     table_name: &str,
     files: &[CatalogFile],
@@ -18,12 +18,14 @@ pub(crate) fn prune_files_by_statistics<C: CatalogPort>(
         .iter()
         .map(|file| file.file_id.clone())
         .collect::<Vec<_>>();
-    let file_info_by_id = catalog_port.get_file_info(
-        table_name,
-        &file_ids,
-        &[FileColumnStatisticsType::Min, FileColumnStatisticsType::Max],
-        &[],
-    )?;
+    let file_info_by_id = catalog_port
+        .get_file_info(
+            table_name,
+            &file_ids,
+            &[FileColumnStatisticsType::Min, FileColumnStatisticsType::Max],
+            &[],
+        )
+        .await?;
 
     Ok(files
         .iter()
@@ -129,13 +131,13 @@ fn file_may_match_between_expr(
     };
 
     if let Some(column_max) = column_statistics.max.as_ref()
-        && column_max < &between_low
+        && statistic_less_than(column_max, &between_low) == Some(true)
     {
         return false;
     }
 
     if let Some(column_min) = column_statistics.min.as_ref()
-        && column_min > &between_high
+        && statistic_greater_than(column_min, &between_high) == Some(true)
     {
         return false;
     }
@@ -160,13 +162,13 @@ fn evaluate_binary_comparison(
     match op {
         Operator::Eq => {
             if let Some(column_min) = column_statistics.min.as_ref()
-                && column_min > &literal_value
+                && statistic_greater_than(column_min, &literal_value) == Some(true)
             {
                 return Some(false);
             }
 
             if let Some(column_max) = column_statistics.max.as_ref()
-                && column_max < &literal_value
+                && statistic_less_than(column_max, &literal_value) == Some(true)
             {
                 return Some(false);
             }
@@ -175,21 +177,102 @@ fn evaluate_binary_comparison(
         }
         Operator::Lt => {
             let column_min = column_statistics.min.as_ref()?;
-            Some(column_min < &literal_value)
+            statistic_less_than(column_min, &literal_value)
         }
         Operator::LtEq => {
             let column_min = column_statistics.min.as_ref()?;
-            Some(column_min <= &literal_value)
+            statistic_less_than_or_equal(column_min, &literal_value)
         }
         Operator::Gt => {
             let column_max = column_statistics.max.as_ref()?;
-            Some(column_max > &literal_value)
+            statistic_greater_than(column_max, &literal_value)
         }
         Operator::GtEq => {
             let column_max = column_statistics.max.as_ref()?;
-            Some(column_max >= &literal_value)
+            statistic_greater_than_or_equal(column_max, &literal_value)
         }
         _ => None,
+    }
+}
+
+fn statistic_less_than(left: &StatisticValue, right: &StatisticValue) -> Option<bool> {
+    Some(
+        match (
+            numeric_statistic_value(left),
+            numeric_statistic_value(right),
+        ) {
+            (Some(left), Some(right)) => left < right,
+            _ => match (left, right) {
+                (StatisticValue::TimestampMicros(left), StatisticValue::TimestampMicros(right)) => {
+                    left < right
+                }
+                // TODO: drop timestamp comparison (for now)
+                _ => return None,
+            },
+        },
+    )
+}
+
+fn statistic_less_than_or_equal(left: &StatisticValue, right: &StatisticValue) -> Option<bool> {
+    Some(
+        match (
+            numeric_statistic_value(left),
+            numeric_statistic_value(right),
+        ) {
+            (Some(left), Some(right)) => left <= right,
+            _ => match (left, right) {
+                (StatisticValue::TimestampMicros(left), StatisticValue::TimestampMicros(right)) => {
+                    left <= right
+                }
+                // TODO: drop timestamp comparison (for now)
+                _ => return None,
+            },
+        },
+    )
+}
+
+fn statistic_greater_than(left: &StatisticValue, right: &StatisticValue) -> Option<bool> {
+    Some(
+        match (
+            numeric_statistic_value(left),
+            numeric_statistic_value(right),
+        ) {
+            (Some(left), Some(right)) => left > right,
+            _ => match (left, right) {
+                (StatisticValue::TimestampMicros(left), StatisticValue::TimestampMicros(right)) => {
+                    left > right
+                }
+                // TODO: drop timestamp comparison (for now)
+                _ => return None,
+            },
+        },
+    )
+}
+
+fn statistic_greater_than_or_equal(left: &StatisticValue, right: &StatisticValue) -> Option<bool> {
+    Some(
+        match (
+            numeric_statistic_value(left),
+            numeric_statistic_value(right),
+        ) {
+            (Some(left), Some(right)) => left >= right,
+            _ => match (left, right) {
+                (StatisticValue::TimestampMicros(left), StatisticValue::TimestampMicros(right)) => {
+                    left >= right
+                }
+                // TODO: drop timestamp comparison (for now)
+                _ => return None,
+            },
+        },
+    )
+}
+
+fn numeric_statistic_value(value: &StatisticValue) -> Option<f64> {
+    match value {
+        StatisticValue::Int32(value) => Some(*value as f64),
+        StatisticValue::Int64(value) => Some(*value as f64),
+        StatisticValue::Float64(value) => Some(*value),
+        StatisticValue::TimestampMicros(_) => None,
     }
 }
 

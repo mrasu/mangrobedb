@@ -77,9 +77,10 @@ impl<C: CatalogPort + 'static> TableProvider for DummyTableProvider<C> {
                 DEFAULT_STREAM_ID,
                 &partition_time_filter,
             )
+            .await
             .map_err(|error| DataFusionError::External(Box::new(error)))?;
 
-        let pruned_files = self.prune_files(&files, filters)?;
+        let pruned_files = self.prune_files(&files, filters).await?;
         let paths = resolve_catalog_paths(&self.table, &pruned_files);
         debug!(table_name = %self.table.schema.table_name, ?paths, "selected query files");
         if paths.is_empty() {
@@ -119,26 +120,24 @@ impl<C: CatalogPort + 'static> DummyTableProvider<C> {
         Ok(Arc::new(EmptyExec::new(projected_schema)))
     }
 
-    fn prune_files(
+    async fn prune_files(
         &self,
         candidate_files: &[CatalogFile],
         filters: &[Expr],
     ) -> DataFusionResult<Vec<CatalogFile>> {
-        let chunked_files = candidate_files.chunks(GET_FILE_INFO_BATCH_SIZE);
-        let pruned_files = chunked_files
-            .map(|files| {
+        let mut pruned_files = Vec::new();
+        for files in candidate_files.chunks(GET_FILE_INFO_BATCH_SIZE) {
+            pruned_files.extend(
                 prune_files_by_statistics(
                     self.catalog_port.as_ref(),
                     &self.table.schema.table_name,
                     files,
                     filters,
                 )
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| DataFusionError::External(Box::new(error)))?
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>();
+                .await
+                .map_err(|error| DataFusionError::External(Box::new(error)))?,
+            );
+        }
 
         Ok(pruned_files)
     }

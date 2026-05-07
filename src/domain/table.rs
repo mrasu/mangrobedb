@@ -11,8 +11,11 @@ impl Table {
         Self { schema }
     }
 
-    pub fn load<C: CatalogPort>(catalog_port: &C, table_name: &str) -> Result<Self, CatalogError> {
-        let schema = catalog_port.get_table_schema(table_name)?;
+    pub async fn load<C: CatalogPort>(
+        catalog_port: &C,
+        table_name: &str,
+    ) -> Result<Self, CatalogError> {
+        let schema = catalog_port.get_table_schema(table_name).await?;
         Ok(Self::new(schema))
     }
 

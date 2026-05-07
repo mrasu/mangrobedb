@@ -2,6 +2,7 @@ use std::fmt::Debug;
 
 use crate::domain::statistics::{ColumnStatistics, FileStatistics};
 use crate::domain::table_schema::TableSchema;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -13,17 +14,18 @@ pub enum CatalogError {
     Internal(#[from] anyhow::Error),
 }
 
+#[async_trait]
 pub trait CatalogPort: Debug + Send + Sync {
-    fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError>;
+    async fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError>;
 
-    fn get_current_state(
+    async fn get_current_state(
         &self,
         table_name: &str,
         stream_id: i64,
         partition_time_filter: &PartitionTimeFilter,
     ) -> Result<Vec<CatalogFile>, CatalogError>;
 
-    fn get_file_info(
+    async fn get_file_info(
         &self,
         table_name: &str,
         file_ids: &[String],
@@ -31,13 +33,13 @@ pub trait CatalogPort: Debug + Send + Sync {
         included_file_metadata_types: &[FileMetadataType],
     ) -> Result<std::collections::HashMap<String, CatalogFileInfo>, CatalogError>;
 
-    fn update_table_schema(
+    async fn update_table_schema(
         &self,
         table_name: &str,
         schema: TableSchema,
     ) -> Result<(), CatalogError>;
 
-    fn add_files(
+    async fn add_files(
         &self,
         idempotency_key: &[u8],
         table_name: &str,

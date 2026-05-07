@@ -11,6 +11,9 @@ default_sql := "select * from dummy_table"
 client-query sql=default_sql:
     cargo run --bin client_query -- --sql "{{sql}}"
 
+client-migration-refresh:
+    cargo run --bin client_migration -- refresh --database-url postgres://postgres:@127.0.0.1:5432/mangrobe-db-development
+
 fmt:
     cargo fmt
     cargo clippy --fix --allow-dirty

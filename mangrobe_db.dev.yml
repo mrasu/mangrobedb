@@ -1,2 +1,3 @@
 s3:
   bucket: mangrobe-db-development
+database_url: postgres://postgres:@127.0.0.1:5432/mangrobe-db-development

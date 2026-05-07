@@ -55,7 +55,7 @@ impl ImportingRecords<Validated> {
         Ok(Self::new(table_schema, record_batches))
     }
 
-    pub fn update_mangrobe_schema_if_required<R: CatalogPort>(
+    pub async fn update_mangrobe_schema_if_required<R: CatalogPort>(
         self,
         port: &Arc<R>,
     ) -> Result<ImportingRecords<MangrobeSchemaUpdated>, ApplicationError> {
@@ -69,7 +69,8 @@ impl ImportingRecords<Validated> {
             .add_missing_public_columns_if_required(&schema)?;
 
         if result.schema_changed {
-            port.update_table_schema(&result.schema.table_name, result.schema.clone())?;
+            port.update_table_schema(&result.schema.table_name, result.schema.clone())
+                .await?;
         }
 
         Ok(ImportingRecords::new(result.schema, self.record_batches))

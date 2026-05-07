@@ -7,9 +7,10 @@ use crate::app_config::AppConfig;
 use crate::application::import::service::ImportService;
 use crate::application::query::service::QueryService;
 use crate::domain::common_ports::CommonPorts;
-use crate::infrastructure::catalog::mock::MockCatalog;
+use crate::infrastructure::catalog::mangrobe::MangrobeCatalog;
 use crate::infrastructure::object_store::S3ObjectStore;
 use crate::infrastructure::uuid::RandomUuid;
+use crate::util::db::connect;
 use arrow_flight::flight_service_server::{FlightService, FlightServiceServer};
 use arrow_flight::{
     Action, ActionType, Criteria, Empty, FlightData, FlightDescriptor, FlightInfo,
@@ -21,8 +22,8 @@ use tonic::{Request, Response, Status, Streaming};
 
 type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
-pub type SharedImportService = Arc<ImportService<MockCatalog, S3ObjectStore>>;
-pub type SharedQueryService = Arc<QueryService<MockCatalog, S3ObjectStore>>;
+pub type SharedImportService = Arc<ImportService<MangrobeCatalog, S3ObjectStore>>;
+pub type SharedQueryService = Arc<QueryService<MangrobeCatalog, S3ObjectStore>>;
 
 #[derive(Debug)]
 pub struct MangrobeFlightService {
@@ -40,7 +41,10 @@ impl MangrobeFlightService {
 }
 
 pub async fn serve(addr: SocketAddr, app_config: &AppConfig) -> Result<(), anyhow::Error> {
-    let catalog_port = Arc::new(MockCatalog::load_default()?);
+    // Use MockCatalog for easy development without Mangrobe API server
+    // let catalog_port = Arc::new(MockCatalog::load_default()?);
+    let catalog_port = Arc::new(build_catalog(app_config).await?);
+
     let common_ports = Arc::new(CommonPorts::new(Arc::new(RandomUuid)));
     let object_store_port = Arc::new(S3ObjectStore::from_env(&app_config.s3.bucket)?);
 
@@ -69,6 +73,13 @@ pub async fn serve(addr: SocketAddr, app_config: &AppConfig) -> Result<(), anyho
     catalog_port.save_current_state()?;
 
     Ok(())
+}
+
+async fn build_catalog(app_config: &AppConfig) -> Result<MangrobeCatalog, anyhow::Error> {
+    let db = connect(app_config.database_url.clone()).await?;
+    let catalog = MangrobeCatalog::load_default(db)?;
+
+    Ok(catalog)
 }
 
 #[tonic::async_trait]

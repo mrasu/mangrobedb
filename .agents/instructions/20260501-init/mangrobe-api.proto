@@ -185,8 +185,14 @@ message FileInfoResponse {
 
 message FileColumnStatistics {
   string column_name = 1;
-  optional double min = 2;
-  optional double max = 3;
+  optional StatisticsValue min = 2;
+  optional StatisticsValue max = 3;
+}
+
+message StatisticsValue {
+  oneof value {
+    double double_value = 1;
+  }
 }
 
 message FileMetadata {

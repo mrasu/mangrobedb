@@ -7,6 +7,7 @@ use crate::domain::statistics::{ColumnStatistics, FileStatistics};
 use crate::domain::table_schema::{DUMMY_TABLE, TableSchema, initial_dummy_table_schema};
 use crate::infrastructure::catalog::persisted::PersistedState;
 use anyhow::{Context, anyhow};
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -95,8 +96,9 @@ impl MockCatalog {
     }
 }
 
+#[async_trait]
 impl CatalogPort for MockCatalog {
-    fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError> {
+    async fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError> {
         debug!(table_name, "getting table schema from mock catalog port");
         let state = self
             .state
@@ -112,7 +114,7 @@ impl CatalogPort for MockCatalog {
             })
     }
 
-    fn get_current_state(
+    async fn get_current_state(
         &self,
         table_name: &str,
         stream_id: i64,
@@ -140,9 +142,7 @@ impl CatalogPort for MockCatalog {
             .files
             .iter()
             .filter(|file| file.stream_id == stream_id)
-            .filter(|file| {
-                partition_time_matches(file.partition_time, partition_time_filter)
-            })
+            .filter(|file| partition_time_matches(file.partition_time, partition_time_filter))
             .cloned()
             .map(Into::into)
             .collect();
@@ -150,7 +150,7 @@ impl CatalogPort for MockCatalog {
         Ok(files)
     }
 
-    fn get_file_info(
+    async fn get_file_info(
         &self,
         table_name: &str,
         file_ids: &[String],
@@ -206,7 +206,7 @@ impl CatalogPort for MockCatalog {
         Ok(file_info)
     }
 
-    fn update_table_schema(
+    async fn update_table_schema(
         &self,
         table_name: &str,
         schema: TableSchema,
@@ -231,7 +231,7 @@ impl CatalogPort for MockCatalog {
         Ok(())
     }
 
-    fn add_files(
+    async fn add_files(
         &self,
         _idempotency_key: &[u8],
         table_name: &str,

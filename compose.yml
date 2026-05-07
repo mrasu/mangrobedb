@@ -11,6 +11,16 @@ services:
       - RUSTFS_LOG_LEVEL=info
     volumes:
       - rustfs_data:/data
+  postgres:
+    image: postgres:18
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: mangrobe-db-development
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - postgres_data:/var/lib/postgresql
 
 volumes:
   rustfs_data:
+  postgres_data:
