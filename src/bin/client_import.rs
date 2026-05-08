@@ -1,12 +1,11 @@
 use arrow::array::{Int32Array, StringArray, TimestampMicrosecondArray};
 use arrow::datatypes::{ArrowNativeType, DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
-use arrow_flight::FlightDescriptor;
-use arrow_flight::encode::FlightDataEncoderBuilder;
 use arrow_flight::error::FlightError;
-use arrow_flight::flight_service_client::FlightServiceClient;
+use arrow_flight::sql::CommandStatementIngest;
+use arrow_flight::sql::client::FlightSqlServiceClient;
 use clap::Parser;
-use futures::{TryStreamExt, stream};
+use futures::stream;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::transport::Channel;
@@ -19,21 +18,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::parse();
     let endpoint = format!("http://{}", config.addr);
     let channel = Channel::from_shared(endpoint)?.connect().await?;
-    let mut client = FlightServiceClient::new(channel);
+    let mut client = FlightSqlServiceClient::new(channel);
 
     let batch = sample_batch()?;
-    let descriptor =
-        FlightDescriptor::new_path(vec!["import".to_string(), config.table_name.clone()]);
-    let input = stream::iter(vec![Ok::<RecordBatch, FlightError>(batch)]);
-    let flight_data = FlightDataEncoderBuilder::new()
-        .with_flight_descriptor(Some(descriptor))
-        .build(input)
-        .try_collect::<Vec<_>>()
+    let command = CommandStatementIngest {
+        table: DEFAULT_TABLE.to_string(),
+        ..Default::default()
+    };
+    client
+        .execute_ingest(
+            command,
+            stream::iter(vec![Ok::<RecordBatch, FlightError>(batch)]),
+        )
         .await?;
-
-    let response = client.do_put(stream::iter(flight_data)).await?;
-    let mut results = response.into_inner();
-    while let Some(_result) = results.message().await? {}
 
     println!(
         "sent sample import to table={} at {}",

@@ -31,7 +31,7 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
         &self,
         table_name: &str,
         batches: Vec<RecordBatch>,
-    ) -> Result<(), ApplicationError> {
+    ) -> Result<i64, ApplicationError> {
         let table = Table::load(self.catalog_port.as_ref(), table_name)
             .await
             .map_err(|e| match e {
@@ -53,12 +53,14 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
             .await?;
         let flush_unit_records = importing_records.to_flush_unit_records()?;
 
+        let mut num_imported = 0i64;
         for flush_unit_record in flush_unit_records {
             self.flush_service
                 .accept(importing_records.schema(), &flush_unit_record)
                 .await?;
+            num_imported += flush_unit_record.batch_record().num_rows() as i64;
         }
 
-        Ok(())
+        Ok(num_imported)
     }
 }

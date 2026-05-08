@@ -1,7 +1,3 @@
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::sync::Arc;
-
 use super::{import, query};
 use crate::app_config::AppConfig;
 use crate::application::flusher::service::FlushService;
@@ -14,16 +10,17 @@ use crate::infrastructure::uuid::RandomUuid;
 use crate::server::task::flusher::Flusher;
 use crate::util::db::connect;
 use arrow_flight::flight_service_server::{FlightService, FlightServiceServer};
-use arrow_flight::{
-    Action, ActionType, Criteria, Empty, FlightData, FlightDescriptor, FlightInfo,
-    HandshakeRequest, HandshakeResponse, PollInfo, PutResult, SchemaResult, Ticket,
+use arrow_flight::sql::server::{FlightSqlService, PeekableFlightDataStream};
+use arrow_flight::sql::{
+    CommandStatementIngest, CommandStatementQuery, ProstMessageExt, SqlInfo, TicketStatementQuery,
 };
-use futures::{Stream, stream};
+use arrow_flight::{FlightDescriptor, FlightEndpoint, FlightInfo, Ticket};
+use prost::Message;
+use std::net::SocketAddr;
+use std::sync::Arc;
 use tonic::transport::Server;
-use tonic::{Request, Response, Status, Streaming};
+use tonic::{Request, Response, Status};
 use tracing::error;
-
-type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
 pub type SharedImportService = Arc<ImportService<MangrobeCatalog, S3ObjectStore>>;
 pub type SharedQueryService = Arc<QueryService<MangrobeCatalog, S3ObjectStore>>;
@@ -96,94 +93,101 @@ async fn build_catalog(app_config: &AppConfig) -> Result<MangrobeCatalog, anyhow
 }
 
 #[tonic::async_trait]
-impl FlightService for MangrobeFlightService {
-    type HandshakeStream = ResponseStream<HandshakeResponse>;
-    async fn handshake(
-        &self,
-        _request: Request<Streaming<HandshakeRequest>>,
-    ) -> Result<Response<Self::HandshakeStream>, Status> {
-        Err(Status::unimplemented("handshake is not implemented"))
-    }
+impl FlightSqlService for MangrobeFlightService {
+    type FlightService = Self;
 
-    type ListFlightsStream = ResponseStream<FlightInfo>;
-    async fn list_flights(
+    /// Get a FlightInfo for executing a SQL query.
+    async fn get_flight_info_statement(
         &self,
-        _request: Request<Criteria>,
-    ) -> Result<Response<Self::ListFlightsStream>, Status> {
-        Err(Status::unimplemented("list_flights is not implemented"))
-    }
-
-    async fn get_flight_info(
-        &self,
+        query: CommandStatementQuery,
         _request: Request<FlightDescriptor>,
     ) -> Result<Response<FlightInfo>, Status> {
-        Err(Status::unimplemented("get_flight_info is not implemented"))
+        println!("get_flight_info_statement invoked. query: {}", query.query);
+
+        let ticket = Ticket {
+            ticket: self
+                .new_ticket_statement_query(&query.query)
+                .as_any()
+                .encode_to_vec()
+                .into(),
+        };
+
+        Ok(Response::new(FlightInfo {
+            endpoint: vec![FlightEndpoint {
+                ticket: Some(ticket),
+                ..Default::default()
+            }],
+            total_records: -1,
+            total_bytes: -1,
+            ..Default::default()
+        }))
     }
 
-    async fn poll_flight_info(
+    /// Get a FlightDataStream containing the query results.
+    async fn do_get_statement(
         &self,
-        _request: Request<FlightDescriptor>,
-    ) -> Result<Response<PollInfo>, Status> {
-        Err(Status::unimplemented("poll_flight_info is not implemented"))
-    }
+        ticket: TicketStatementQuery,
+        _request: Request<Ticket>,
+    ) -> Result<Response<<Self as FlightService>::DoGetStream>, Status> {
+        let sql = self.get_statement(&ticket)?;
+        println!("do_get_statement invoked. sql: {sql}");
 
-    async fn get_schema(
-        &self,
-        _request: Request<FlightDescriptor>,
-    ) -> Result<Response<SchemaResult>, Status> {
-        Err(Status::unimplemented("get_schema is not implemented"))
-    }
-
-    type DoGetStream = ResponseStream<FlightData>;
-
-    async fn do_get(
-        &self,
-        request: Request<Ticket>,
-    ) -> Result<Response<Self::DoGetStream>, Status> {
-        let output = query::handle_do_get(&self.query_service, request.into_inner())
+        let output = query::handle_do_get_statement(&self.query_service, &sql)
             .await
-            .map_err(|error| error.handle_then_to_status())?;
+            .map_err(|err| err.handle_then_to_status())?;
 
-        Ok(Response::new(output))
+        Ok(Response::new(Box::pin(output)))
     }
 
-    type DoPutStream = ResponseStream<PutResult>;
-
-    async fn do_put(
+    /// Execute a bulk ingestion.
+    async fn do_put_statement_ingest(
         &self,
-        request: Request<Streaming<FlightData>>,
-    ) -> Result<Response<Self::DoPutStream>, Status> {
-        import::handle_do_put(&self.import_service, request.into_inner())
-            .await
-            .map_err(|error| error.handle_then_to_status())?;
+        ticket: CommandStatementIngest,
+        request: Request<PeekableFlightDataStream>,
+    ) -> Result<i64, Status> {
+        if ticket.table_definition_options.is_some() {
+            return Err(Status::invalid_argument(
+                "table_definition_options like if_not_exist is not supported",
+            ));
+        }
 
-        Ok(Response::new(Box::pin(stream::empty())))
+        println!("do_put_statement_ingest invoked. table: {}", ticket.table);
+
+        let num_ingested = import::do_put_statement_ingest(
+            &self.import_service,
+            &ticket.table,
+            request.into_inner(),
+        )
+        .await
+        .map_err(|error| error.handle_then_to_status())?;
+
+        // https://arrow.apache.org/docs/format/FlightSql.html#:~:text=of%20affected%20rows.-,CommandStatementIngest,-Execute%20a%20bulk
+        // > CommandStatementIngest:
+        // > return the number of rows ingested via a DoPutUpdateResult message
+        Ok(num_ingested)
     }
 
-    type DoExchangeStream = ResponseStream<FlightData>;
+    async fn register_sql_info(&self, _id: i32, _result: &SqlInfo) {}
+}
 
-    async fn do_exchange(
-        &self,
-        _request: Request<Streaming<FlightData>>,
-    ) -> Result<Response<Self::DoExchangeStream>, Status> {
-        Err(Status::unimplemented("do_exchange is not implemented"))
+const TICKET_PREFIX: &str = "MangrobeDBTicket:";
+impl MangrobeFlightService {
+    fn new_ticket_statement_query(&self, statement: &str) -> TicketStatementQuery {
+        TicketStatementQuery {
+            statement_handle: format!("{TICKET_PREFIX}{statement}").into(),
+        }
     }
 
-    type DoActionStream = ResponseStream<arrow_flight::Result>;
-
-    async fn do_action(
+    fn get_statement(
         &self,
-        _request: Request<Action>,
-    ) -> Result<Response<Self::DoActionStream>, Status> {
-        Err(Status::unimplemented("do_action is not implemented"))
-    }
+        ticket_statement_query: &TicketStatementQuery,
+    ) -> Result<String, Status> {
+        let sql = String::from_utf8(ticket_statement_query.statement_handle.to_vec())
+            .map_err(|err| Status::invalid_argument(format!("invalid sql: {err}")))?;
+        let sql = sql
+            .strip_prefix(TICKET_PREFIX)
+            .ok_or(Status::invalid_argument(format!("invalid sql: {sql}")))?;
 
-    type ListActionsStream = ResponseStream<ActionType>;
-
-    async fn list_actions(
-        &self,
-        _request: Request<Empty>,
-    ) -> Result<Response<Self::ListActionsStream>, Status> {
-        Err(Status::unimplemented("list_actions is not implemented"))
+        Ok(sql.into())
     }
 }

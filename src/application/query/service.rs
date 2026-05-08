@@ -26,8 +26,6 @@ impl<C: CatalogPort + 'static, O: ObjectStorePort> QueryService<C, O> {
     }
 
     pub async fn query(&self, sql: &str) -> Result<QueryOutput, ApplicationError> {
-        println!("DoGet query sql: {sql}");
-
         let table = Table::load(self.catalog_port.as_ref(), DUMMY_TABLE).await?;
 
         let table_bucket = &table.schema.bucket;

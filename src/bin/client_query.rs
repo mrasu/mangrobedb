@@ -1,9 +1,8 @@
+use arrow::record_batch::RecordBatch;
 use arrow::util::pretty::print_batches;
-use arrow_flight::Ticket;
-use arrow_flight::decode::FlightRecordBatchStream;
-use arrow_flight::flight_service_client::FlightServiceClient;
+use arrow_flight::sql::client::FlightSqlServiceClient;
 use clap::Parser;
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 use tonic::transport::Channel;
 
 const DEFAULT_ADDR: &str = "127.0.0.1:50051";
@@ -13,27 +12,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::parse();
     let endpoint = format!("http://{}", config.addr);
     let channel = Channel::from_shared(endpoint)?.connect().await?;
-    let mut client = FlightServiceClient::new(channel);
+    let mut client = FlightSqlServiceClient::new(channel);
 
-    let ticket = Ticket {
-        ticket: config.sql.into_bytes().into(),
-    };
+    let query_ticket = client.execute(config.sql, None).await?;
+    let endpoint = query_ticket
+        .endpoint
+        .first()
+        .ok_or_else(|| "query returned no flight endpoints".to_string())?;
+    let ticket = endpoint
+        .ticket
+        .as_ref()
+        .ok_or_else(|| "query endpoint did not include a ticket".to_string())?;
+    println!("ticket: {:?}", ticket);
 
-    let response = client.do_get(ticket).await?;
-    let stream = response.into_inner();
-    let mut record_batches =
-        FlightRecordBatchStream::new_from_flight_data(stream.map_err(Into::into));
+    let mut ret = client.do_get(ticket.clone()).await?;
 
-    let mut output = Vec::new();
-    while let Some(batch) = record_batches.next().await {
-        output.push(batch?);
+    let mut query_result = Vec::<RecordBatch>::new();
+    while let Some(next) = ret.next().await {
+        let batch = next?;
+
+        query_result.push(batch);
     }
-
-    if output.is_empty() {
-        println!("query returned 0 rows");
-    } else {
-        print_batches(&output)?;
-    }
+    print_batches(&query_result)?;
 
     Ok(())
 }
