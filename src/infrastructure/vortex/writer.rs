@@ -1,5 +1,5 @@
-use crate::domain::file_batch::VortexFileRecord;
 use crate::domain::statistics::FileStatistics;
+use crate::domain::vortex_file_record::VortexFileRecord;
 use async_fs::{File, create_dir_all};
 use tempfile::NamedTempFile;
 use vortex::VortexSessionDefault;

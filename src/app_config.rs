@@ -1,11 +1,17 @@
 use config::{Config, Environment, File, FileFormat};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use std::path::Path;
+use std::time::Duration;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
     pub s3: S3Config,
     pub database_url: String,
+    #[serde(
+        default = "default_flush_interval",
+        deserialize_with = "deserialize_duration"
+    )]
+    pub flush_interval: Duration,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,4 +42,16 @@ impl AppConfig {
             .build()?
             .try_deserialize()
     }
+}
+
+fn default_flush_interval() -> Duration {
+    Duration::from_millis(100)
+}
+
+fn deserialize_duration<'de, D>(deserializer: D) -> Result<Duration, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    humantime::parse_duration(&value).map_err(serde::de::Error::custom)
 }

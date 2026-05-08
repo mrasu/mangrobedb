@@ -1,8 +1,8 @@
 use crate::application::error::{ApplicationError, ApplicationUserError};
 use crate::application::import::validate::validate_schema;
-use crate::domain::file_batch::{FileBatch, FlushUnit, VortexFileRecord};
+use crate::domain::flush_unit::FlushUnit;
+use crate::domain::flush_unit_record::FlushUnitRecord;
 use crate::domain::port::catalog::CatalogPort;
-use crate::domain::port::uuid_generator::UuidGeneratorPort;
 use crate::domain::table_mapping::{MappingStrategy, TableMapping};
 use crate::domain::table_schema::TableSchema;
 use anyhow::anyhow;
@@ -31,6 +31,10 @@ impl<State> ImportingRecords<State> {
             record_batches,
             _state: PhantomData,
         }
+    }
+
+    pub fn schema(&self) -> &TableSchema {
+        &self.schema
     }
 }
 
@@ -78,19 +82,16 @@ impl ImportingRecords<Validated> {
 }
 
 impl ImportingRecords<MangrobeSchemaUpdated> {
-    pub fn to_file_batch(
-        &self,
-        uuid_generator: &dyn UuidGeneratorPort,
-    ) -> Result<FileBatch, ApplicationError> {
+    pub fn to_flush_unit_records(&self) -> Result<Vec<FlushUnitRecord>, ApplicationError> {
         let records = self
             .record_batches
             .iter()
             .map(|record| self.add_internal_columns(record))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let file_records = self.split_by_flush_unit(records, uuid_generator)?;
+        let file_unit_records = self.split_by_flush_unit(records)?;
 
-        Ok(FileBatch::new(self.schema.clone(), file_records))
+        Ok(file_unit_records)
     }
 
     fn add_internal_columns(&self, batch: &RecordBatch) -> Result<RecordBatch, ApplicationError> {
@@ -229,8 +230,7 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
     fn split_by_flush_unit(
         &self,
         records: Vec<RecordBatch>,
-        uuid_generator: &dyn UuidGeneratorPort,
-    ) -> Result<Vec<VortexFileRecord>, ApplicationError> {
+    ) -> Result<Vec<FlushUnitRecord>, ApplicationError> {
         let mut records_by_flush_unit: BTreeMap<FlushUnit, Vec<RecordBatch>> = BTreeMap::new();
 
         for record in records {
@@ -253,14 +253,12 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
             }
         }
 
-        let file_records = records_by_flush_unit
+        let flush_unit_records = records_by_flush_unit
             .into_iter()
-            .map(|(flush_unit, records)| {
-                self.create_file_record(flush_unit, records, uuid_generator)
-            })
+            .map(|(flush_unit, records)| self.create_flush_unit_record(flush_unit, records))
             .collect::<Result<Vec<_>, ApplicationError>>()?;
 
-        Ok(file_records)
+        Ok(flush_unit_records)
     }
 
     fn flush_units_in_record(
@@ -287,18 +285,16 @@ impl ImportingRecords<MangrobeSchemaUpdated> {
         Ok(flush_units.into_iter().collect())
     }
 
-    fn create_file_record(
+    fn create_flush_unit_record(
         &self,
         flush_unit: FlushUnit,
         records: Vec<RecordBatch>,
-        uuid_generator: &dyn UuidGeneratorPort,
-    ) -> Result<VortexFileRecord, ApplicationError> {
+    ) -> Result<FlushUnitRecord, ApplicationError> {
         let schema = records
             .first()
             .expect("unexpected empty record batches for flush unit")
             .schema();
         let record = concat_batches(&schema, records.iter())?;
-        let name = format!("{}.vortex", uuid_generator.generate());
-        Ok(VortexFileRecord::new(name, flush_unit, record))
+        Ok(FlushUnitRecord::new(flush_unit, record))
     }
 }

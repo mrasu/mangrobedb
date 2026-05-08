@@ -3540,6 +3540,7 @@ dependencies = [
  "datafusion",
  "datafusion-expr",
  "futures",
+ "humantime",
  "mangrobe-api-server",
  "object_store",
  "prost-types",

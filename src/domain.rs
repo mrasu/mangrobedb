@@ -1,8 +1,10 @@
 pub mod common_ports;
-pub mod file_batch;
+pub mod flush_unit;
+pub mod flush_unit_record;
 pub mod port;
 pub mod statistics;
 pub mod table;
 pub mod table_mapping;
 pub mod table_schema;
 pub mod time_range;
+pub mod vortex_file_record;

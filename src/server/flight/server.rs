@@ -4,12 +4,14 @@ use std::sync::Arc;
 
 use super::{import, query};
 use crate::app_config::AppConfig;
+use crate::application::flusher::service::FlushService;
 use crate::application::import::service::ImportService;
 use crate::application::query::service::QueryService;
 use crate::domain::common_ports::CommonPorts;
 use crate::infrastructure::catalog::mangrobe::MangrobeCatalog;
 use crate::infrastructure::object_store::S3ObjectStore;
 use crate::infrastructure::uuid::RandomUuid;
+use crate::server::task::flusher::Flusher;
 use crate::util::db::connect;
 use arrow_flight::flight_service_server::{FlightService, FlightServiceServer};
 use arrow_flight::{
@@ -19,6 +21,7 @@ use arrow_flight::{
 use futures::{Stream, stream};
 use tonic::transport::Server;
 use tonic::{Request, Response, Status, Streaming};
+use tracing::error;
 
 type ResponseStream<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
@@ -47,16 +50,23 @@ pub async fn serve(addr: SocketAddr, app_config: &AppConfig) -> Result<(), anyho
 
     let common_ports = Arc::new(CommonPorts::new(Arc::new(RandomUuid)));
     let object_store_port = Arc::new(S3ObjectStore::from_env(&app_config.s3.bucket)?);
+    let flush_service = Arc::new(FlushService::new(
+        Arc::clone(&catalog_port),
+        Arc::clone(&object_store_port),
+        Arc::clone(&common_ports),
+        app_config.flush_interval,
+    ));
 
     let import_service = Arc::new(ImportService::new(
         Arc::clone(&catalog_port),
         Arc::clone(&object_store_port),
-        Arc::clone(&common_ports),
+        Arc::clone(&flush_service),
     ));
     let query_service = Arc::new(QueryService::new(
         Arc::clone(&catalog_port),
         Arc::clone(&object_store_port),
     ));
+    let flusher_handle = Flusher::new(Arc::clone(&flush_service)).spawn();
 
     Server::builder()
         .add_service(FlightServiceServer::new(MangrobeFlightService::new(
@@ -70,6 +80,9 @@ pub async fn serve(addr: SocketAddr, app_config: &AppConfig) -> Result<(), anyho
         })
         .await?;
 
+    if let Err(error) = flusher_handle.shutdown().await {
+        error!("failed to shutdown flusher: {error}");
+    }
     catalog_port.save_current_state()?;
 
     Ok(())

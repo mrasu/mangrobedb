@@ -11,6 +11,7 @@ impl Table {
         Self { schema }
     }
 
+    // TODO: return cache when acceptable.
     pub async fn load<C: CatalogPort>(
         catalog_port: &C,
         table_name: &str,

@@ -42,5 +42,5 @@ Before implementing a section, read the listed files and ask for explicit user d
 
 ## 4. Complete Writer Semantics
 
-- [ ] Add in-memory import buffering: group rows by flush unit and make Import return after buffer acceptance.
-- [ ] Add background flushing: every five seconds drain buffered rows, write/upload/register files, and batch one flush tick into one `AddFiles` request when possible.
+- [x] Add in-memory import buffering: group rows by flush unit and make Import return after buffer acceptance.
+- [x] Add background flushing: every five seconds drain buffered rows, write/upload/register files, and batch one flush tick into one `AddFiles` request when possible.
