@@ -144,6 +144,10 @@ impl CatalogPort for MangrobeCatalog {
             })
     }
 
+    #[allow(
+        clippy::needless_update,
+        reason = "Keep the default update so this remains valid when the type is extended."
+    )]
     async fn get_current_state(
         &self,
         table_name: &str,
@@ -191,6 +195,10 @@ impl CatalogPort for MangrobeCatalog {
         included_column_statistics_types: &[FileColumnStatisticsType],
         included_file_metadata_types: &[FileMetadataType],
     ) -> Result<HashMap<String, CatalogFileInfo>, CatalogError> {
+        #[allow(
+            clippy::needless_update,
+            reason = "Keep the default update so this remains valid when the type is extended."
+        )]
         let param = GetFileInfoRequest {
             table_name: table_name.into(),
             file_ids: file_ids.to_vec(),
@@ -277,6 +285,10 @@ impl CatalogPort for MangrobeCatalog {
         Ok(())
     }
 
+    #[allow(
+        clippy::needless_update,
+        reason = "Keep the default update so this remains valid when the type is extended."
+    )]
     async fn add_files(
         &self,
         idempotency_key: &[u8],
@@ -336,6 +348,10 @@ fn schema_only_state(state: &MockState) -> MockState {
     }
 }
 
+#[allow(
+    clippy::needless_update,
+    reason = "Keep the default update so this remains valid when the type is extended."
+)]
 fn to_mangrobe_partition_time_filter(filter: &PartitionTimeFilter) -> MangrobePartitionTimeFilter {
     MangrobePartitionTimeFilter {
         predicates: filter
@@ -347,6 +363,10 @@ fn to_mangrobe_partition_time_filter(filter: &PartitionTimeFilter) -> MangrobePa
     }
 }
 
+#[allow(
+    clippy::needless_update,
+    reason = "Keep the default update so this remains valid when the type is extended."
+)]
 fn to_mangrobe_partition_time_predicate(
     predicate: &PartitionTimePredicate,
 ) -> MangrobePartitionTimePredicate {
@@ -371,6 +391,10 @@ fn to_mangrobe_partition_time_predicate(
     }
 }
 
+#[allow(
+    clippy::needless_update,
+    reason = "Keep the default update so this remains valid when the type is extended."
+)]
 fn to_mangrobe_partition_time_bound(bound: &PartitionTimeBound) -> MangrobePartitionTimeBound {
     MangrobePartitionTimeBound {
         time: Some(timestamp_from_micros(bound.time)),
@@ -395,6 +419,10 @@ fn to_mangrobe_metadata_type(value: FileMetadataType) -> i32 {
     }) as i32
 }
 
+#[allow(
+    clippy::needless_update,
+    reason = "Keep the default update so this remains valid when the type is extended."
+)]
 fn to_mangrobe_add_file_entry(entry: AddFilesEntry) -> anyhow::Result<MangrobeAddFileEntry> {
     Ok(MangrobeAddFileEntry {
         partition_time: Some(timestamp_from_micros(entry.partition_time)),
@@ -407,6 +435,10 @@ fn to_mangrobe_add_file_entry(entry: AddFilesEntry) -> anyhow::Result<MangrobeAd
     })
 }
 
+#[allow(
+    clippy::needless_update,
+    reason = "Keep the default update so this remains valid when the type is extended."
+)]
 fn to_mangrobe_add_file_info_entry(
     file: crate::domain::port::catalog::AddFile,
 ) -> anyhow::Result<MangrobeAddFileInfoEntry> {
@@ -441,6 +473,10 @@ fn statistic_value_to_f64(value: StatisticValue) -> f64 {
     }
 }
 
+#[allow(
+    clippy::needless_update,
+    reason = "Keep the default update so this remains valid when the type is extended."
+)]
 pub fn timestamp_from_micros(micros: i64) -> Timestamp {
     Timestamp {
         seconds: micros.div_euclid(1_000_000),

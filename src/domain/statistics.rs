@@ -27,15 +27,11 @@ pub enum StatisticValue {
 
 impl StatisticValue {
     pub fn from_statistics_value(value: StatisticsValue) -> Option<Self> {
-        let Some(val) = value.value else {
-            return None;
-        };
-
-        let ret = match val {
+        let val = match value.value? {
             Value::DoubleValue(val) => StatisticValue::Float64(val),
         };
 
-        Some(ret)
+        Some(val)
     }
 }
 

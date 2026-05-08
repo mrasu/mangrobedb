@@ -14,10 +14,13 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use tracing::debug;
 
+#[allow(dead_code)]
 const DEFAULT_STATE_PATH: &str = "./data/mock/state.json";
 const FILE_ID_PREFIX: &str = "id:";
 
+#[allow(dead_code)]
 #[derive(Debug)]
+// TODO: remove when mangrobe supports table creation
 pub struct MockCatalog {
     state_path: PathBuf,
     state: Mutex<MockState>,
@@ -45,6 +48,7 @@ pub(super) struct MockCatalogFile {
     pub(super) file_metadata: FileMetadata,
 }
 
+#[allow(dead_code)]
 impl MockCatalog {
     pub fn load_default() -> anyhow::Result<Self> {
         Self::load(DEFAULT_STATE_PATH)
@@ -379,6 +383,7 @@ fn file_id_to_path(file_id: &str) -> Option<&str> {
     file_id.strip_prefix(FILE_ID_PREFIX)
 }
 
+#[allow(dead_code)]
 impl MockState {
     fn initial() -> Self {
         let table = MockTable {

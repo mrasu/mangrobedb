@@ -3,7 +3,6 @@ use arrow_flight::{FlightData, FlightDescriptor};
 use futures::{StreamExt, TryStreamExt, stream};
 use tonic::Streaming;
 
-use crate::application::error::ApplicationError;
 use crate::server::flight::error::FlightServerError;
 use crate::server::flight::server::SharedImportService;
 
@@ -38,7 +37,7 @@ pub async fn handle_do_put(
     import_service
         .import(&table_name, batches)
         .await
-        .map_err(import_error_to_status)?;
+        .map_err(FlightServerError::from)?;
 
     Ok(())
 }
@@ -56,8 +55,4 @@ fn parse_import_descriptor(
             r#"DoPut descriptor path must be ["import", table_name]"#,
         )),
     }
-}
-
-fn import_error_to_status(error: ApplicationError) -> FlightServerError {
-    FlightServerError::from_application_error("import failed", error)
 }

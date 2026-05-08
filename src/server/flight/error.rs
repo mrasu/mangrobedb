@@ -1,54 +1,45 @@
 use crate::application::error::ApplicationError;
 use anyhow::anyhow;
+use arrow::error::ArrowError;
 use tonic::{Code, Status};
 use tracing::error;
 
 pub struct FlightServerError {
     code: Code,
-    user_message: String,
-    internal_error: Option<anyhow::Error>,
+    error: Option<anyhow::Error>,
+    flight_status: Option<Status>,
 }
 
 impl FlightServerError {
     pub fn invalid_argument(message: impl Into<String>) -> Self {
         FlightServerError {
             code: Code::InvalidArgument,
-            user_message: message.into(),
-            internal_error: None,
+            error: Some(anyhow!(message.into())),
+            flight_status: None,
         }
     }
 
-    pub fn internal(message: impl Into<String>, error: anyhow::Error) -> Self {
+    pub fn internal(error: anyhow::Error) -> Self {
         FlightServerError {
-            code: Code::Internal,
-            user_message: message.into(),
-            internal_error: Some(error),
-        }
-    }
-
-    pub fn from_application_error(
-        default_message: impl Into<String>,
-        value: ApplicationError,
-    ) -> Self {
-        if let Some(message) = value.user_display_message() {
-            return FlightServerError {
-                code: Code::InvalidArgument,
-                user_message: message,
-                internal_error: None,
-            };
-        }
-
-        FlightServerError {
-            code: Code::Internal,
-            user_message: default_message.into(),
-            internal_error: Some(value.into()),
+            code: Code::InvalidArgument,
+            error: Some(error),
+            flight_status: None,
         }
     }
 
     pub fn handle_then_to_status(self) -> Status {
-        error!(code=%self.code, error = ?self.internal_error, message=self.user_message);
+        if let Some(error) = self.error {
+            error!(code=%self.code, error = ?error);
 
-        Status::new(self.code, self.user_message.clone())
+            return Status::new(self.code, error.to_string());
+        }
+
+        if let Some(status) = self.flight_status {
+            error!(code=%self.code, ?status);
+            return status;
+        };
+
+        Status::new(self.code, "unknown")
     }
 }
 
@@ -56,8 +47,29 @@ impl From<Status> for FlightServerError {
     fn from(value: Status) -> Self {
         Self {
             code: value.code(),
-            user_message: value.message().to_string(),
-            internal_error: Some(anyhow!(value)),
+            error: None,
+            flight_status: Some(value),
         }
+    }
+}
+
+impl From<ApplicationError> for FlightServerError {
+    fn from(value: ApplicationError) -> Self {
+        match value {
+            ApplicationError::User(error) => Self::invalid_argument(error.to_string()),
+            ApplicationError::Internal(error) => Self::internal(error),
+        }
+    }
+}
+
+impl From<anyhow::Error> for FlightServerError {
+    fn from(value: anyhow::Error) -> Self {
+        Self::internal(value)
+    }
+}
+
+impl From<ArrowError> for FlightServerError {
+    fn from(value: ArrowError) -> Self {
+        Self::internal(anyhow!(value))
     }
 }

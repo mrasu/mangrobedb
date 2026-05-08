@@ -1,4 +1,3 @@
-use crate::application::error::ApplicationError;
 use crate::server::flight::error::FlightServerError;
 use crate::server::flight::server::SharedQueryService;
 use anyhow::anyhow;
@@ -19,18 +18,12 @@ pub async fn handle_do_get(
     let query_output = query_service
         .query(&sql)
         .await
-        .map_err(query_error_to_status)?;
+        .map_err(FlightServerError::from)?;
 
     let flight_data = batches_to_flight_data(query_output.schema.as_ref(), query_output.batches)
-        .map_err(|error| {
-            FlightServerError::internal("failed to encode FlightData", anyhow!(error))
-        })?;
+        .map_err(|error| FlightServerError::internal(anyhow!(error)))?;
     let output = stream::iter(flight_data.into_iter().map(Ok));
     Ok(Box::pin(output))
-}
-
-fn query_error_to_status(error: ApplicationError) -> FlightServerError {
-    FlightServerError::from_application_error("query failed", error)
 }
 
 pub fn parse_query_sql(ticket: &Ticket) -> Result<String, FlightServerError> {

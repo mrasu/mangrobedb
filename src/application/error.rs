@@ -47,18 +47,6 @@ pub enum ApplicationUserError {
     NotImplemented { message: String },
 }
 
-// Error conversion policy:
-// `From` is for internal errors only.
-// Convert `ApplicationUserError` explicitly at each call site to decide whether it should be user-facing.
-impl ApplicationError {
-    pub fn user_display_message(&self) -> Option<String> {
-        match self {
-            Self::User(error) => Some(error.to_string()),
-            Self::Internal(_) => None,
-        }
-    }
-}
-
 impl From<ApplicationUserError> for ApplicationError {
     fn from(value: ApplicationUserError) -> Self {
         Self::User(value)
