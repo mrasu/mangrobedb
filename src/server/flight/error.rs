@@ -1,6 +1,7 @@
 use crate::application::error::ApplicationError;
 use anyhow::anyhow;
 use arrow::error::ArrowError;
+use arrow_flight::error::FlightError;
 use tonic::{Code, Status};
 use tracing::error;
 
@@ -14,6 +15,14 @@ impl FlightServerError {
     pub fn invalid_argument(message: impl Into<String>) -> Self {
         FlightServerError {
             code: Code::InvalidArgument,
+            error: Some(anyhow!(message.into())),
+            flight_status: None,
+        }
+    }
+
+    pub fn unimplemented(message: impl Into<String>) -> Self {
+        FlightServerError {
+            code: Code::Unimplemented,
             error: Some(anyhow!(message.into())),
             flight_status: None,
         }
@@ -71,5 +80,11 @@ impl From<anyhow::Error> for FlightServerError {
 impl From<ArrowError> for FlightServerError {
     fn from(value: ArrowError) -> Self {
         Self::internal(anyhow!(value))
+    }
+}
+
+impl From<FlightError> for FlightServerError {
+    fn from(value: FlightError) -> Self {
+        Status::from(value).into()
     }
 }

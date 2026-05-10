@@ -18,8 +18,6 @@ pub enum ApplicationError {
 pub enum ApplicationUserError {
     #[error("failed to validate. {message}")]
     ValidationError { message: String },
-    #[error("unknown table: {table_name}")]
-    UnknownTable { table_name: String },
     #[error("cannot access s3: {table_name}")]
     S3InaccessibleTable { table_name: String },
     #[error("import request must include at least one RecordBatch")]

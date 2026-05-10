@@ -1,8 +1,8 @@
 use crate::domain::port::object_store::ObjectStorePort;
+use crate::domain::table::Table;
 use anyhow::anyhow;
 use object_store::ObjectStoreExt;
 use object_store::aws::AmazonS3Builder;
-use object_store::path::Path as ObjectPath;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::runtime::Handle;
@@ -30,19 +30,16 @@ impl S3ObjectStore {
 impl ObjectStorePort for S3ObjectStore {
     fn upload(
         &self,
-        table_name: &str,
-        bucket: &str,
-        path_prefix: &str,
+        table: &Table,
         table_relative_path: &str,
         local_temp_path: &Path,
     ) -> Result<(), anyhow::Error> {
-        self.assert_accessible(bucket)?;
+        self.assert_accessible(&table.schema.bucket)?;
 
         let payload = std::fs::read(local_temp_path)?;
-        let location =
-            ObjectPath::from(format!("{path_prefix}/{table_name}/{table_relative_path}"));
+        let location = table.build_object_path(table_relative_path);
         info!(
-            table_name,
+            table_name = table.schema.table_name,
             table_relative_path,
             local_temp_path = %local_temp_path.display(),
             object_key = %location,

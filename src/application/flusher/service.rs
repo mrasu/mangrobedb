@@ -149,13 +149,8 @@ impl<C: CatalogPort, O: ObjectStorePort> FlushService<C, O> {
         let write_result = write_vortex_file(&file_record).await?;
         let path = file_record.path()?;
 
-        self.object_store_port.upload(
-            &table.schema.table_name,
-            &table.schema.bucket,
-            &table.schema.path_prefix,
-            &path,
-            write_result.temp_file.path(),
-        )?;
+        self.object_store_port
+            .upload(&table, &path, write_result.temp_file.path())?;
 
         let entries = vec![AddFilesEntry {
             partition_time: file_record.partition_time_micros(),

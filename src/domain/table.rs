@@ -1,5 +1,6 @@
 use crate::domain::port::catalog::{CatalogError, CatalogFile, CatalogPort};
 use crate::domain::table_schema::TableSchema;
+use object_store::path::Path as ObjectPath;
 
 #[derive(Debug, Clone)]
 pub struct Table {
@@ -20,11 +21,14 @@ impl Table {
         Ok(Self::new(schema))
     }
 
-    pub fn build_path(&self, catalog_file: &CatalogFile) -> String {
-        // TODO: make the storage scheme configurable via Table fields instead of hardcoding s3:// here.
+    pub fn build_full_path(&self, catalog_file: &CatalogFile) -> String {
         format!(
-            "s3://{}/{}/{}/{}",
-            self.schema.bucket, self.schema.path_prefix, self.schema.table_name, catalog_file.path
+            "s3://{}/{}/{}",
+            self.schema.bucket, self.schema.path_prefix, catalog_file.path
         )
+    }
+
+    pub fn build_object_path(&self, path: &str) -> ObjectPath {
+        ObjectPath::from(format!("{}/{}", self.schema.path_prefix, path))
     }
 }

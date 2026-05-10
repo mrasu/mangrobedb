@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::application::datafusion::column::INTERNAL_COLUMN_PREFIX;
 use datafusion::dataframe::DataFrame;
 use datafusion::error::DataFusionError;
@@ -8,6 +6,7 @@ use datafusion::execution::session_state::SessionState;
 use datafusion::logical_expr::LogicalPlan;
 use datafusion::sql::parser::Statement;
 use datafusion_expr::utils::expr_to_columns;
+use std::collections::HashSet;
 
 pub async fn execute_statement(
     ctx: &SessionContext,

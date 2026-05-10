@@ -1,7 +1,7 @@
 use crate::application::error::{ApplicationError, ApplicationUserError};
 use crate::application::flusher::service::FlushService;
 use crate::application::import::importing_records::ImportingRecords;
-use crate::domain::port::catalog::{CatalogError, CatalogPort};
+use crate::domain::port::catalog::CatalogPort;
 use crate::domain::port::object_store::ObjectStorePort;
 use crate::domain::table::Table;
 use arrow::record_batch::RecordBatch;
@@ -32,14 +32,7 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
         table_name: &str,
         batches: Vec<RecordBatch>,
     ) -> Result<i64, ApplicationError> {
-        let table = Table::load(self.catalog_port.as_ref(), table_name)
-            .await
-            .map_err(|e| match e {
-                CatalogError::TableNotFound { table_name } => {
-                    ApplicationError::User(ApplicationUserError::UnknownTable { table_name })
-                }
-                _ => e.into(),
-            })?;
+        let table = Table::load(self.catalog_port.as_ref(), table_name).await?;
         if !self.object_store_port.is_accessible(&table.schema.bucket) {
             return Err(ApplicationUserError::S3InaccessibleTable {
                 table_name: table.schema.table_name,

@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::transport::Channel;
 
 const DEFAULT_ADDR: &str = "127.0.0.1:50051";
-const DEFAULT_TABLE: &str = "dummy_table";
+const DEFAULT_TABLE: &str = "hello_table";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let batch = sample_batch()?;
     let command = CommandStatementIngest {
-        table: DEFAULT_TABLE.to_string(),
+        table: config.table_name.to_string(),
         ..Default::default()
     };
     client
@@ -51,15 +51,15 @@ struct Config {
 
 fn sample_batch() -> Result<RecordBatch, Box<dyn std::error::Error>> {
     let schema = Arc::new(Schema::new(vec![
-        Field::new("id", DataType::Int32, false),
-        Field::new("stream_id", DataType::Int32, false),
-        Field::new("message", DataType::Utf8, false),
-        Field::new("user", DataType::Utf8, false),
-        Field::new("new_user", DataType::Utf8, false),
+        Field::new("id", DataType::Int32, true),
+        Field::new("stream_id", DataType::Int32, true),
+        Field::new("message", DataType::Utf8, true),
+        Field::new("user", DataType::Utf8, true),
+        Field::new("new_user", DataType::Utf8, true),
         Field::new(
             "posted_at",
             DataType::Timestamp(TimeUnit::Microsecond, None),
-            false,
+            true,
         ),
     ]));
 

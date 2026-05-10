@@ -7,6 +7,28 @@ use arrow::record_batch::RecordBatch;
 use std::marker::PhantomData;
 use thiserror::Error;
 
+pub fn create_default_stream_id_mapping() -> TableMapping {
+    TableMapping::new(
+        PublicColumnDefinition::new("stream_id", DataType::Int32),
+        InternalColumnDefinition::new(to_internal_column_name("stream_id"), DataType::Int32),
+        MappingStrategy::Copy,
+    )
+}
+
+pub fn create_default_partition_mapping() -> TableMapping {
+    TableMapping::new(
+        ColumnDefinition::new(
+            "posted_at",
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
+        ),
+        InternalColumnDefinition::new(
+            to_internal_column_name("partition_time"),
+            DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
+        ),
+        MappingStrategy::ToHour,
+    )
+}
+
 #[derive(Debug, Error)]
 pub enum TableSchemaError {
     #[error("required column is missing: {column_name}")]
@@ -17,6 +39,8 @@ pub enum TableSchemaError {
         expected: String,
         actual: String,
     },
+    #[error("unsupported data type. {data_type}")]
+    UnsupportedArrowDataType { data_type: DataType },
 }
 
 #[derive(Debug, Clone)]
@@ -52,22 +76,23 @@ pub struct AddMissingPublicColumnsResult {
     pub schema_changed: bool,
 }
 
+// TODO: remove TableSchema and replace with ExternalTableDefinition, then support stream_id_mapping and partition_time_mapping
 impl TableSchema {
     pub fn new(
         table_name: String,
         bucket: String,
         path_prefix: String,
         public_columns: Vec<PublicColumnDefinition>,
-        stream_id_mapping: TableMapping,
-        partition_time_mapping: TableMapping,
+        // stream_id_mapping: TableMapping,
+        // partition_time_mapping: TableMapping,
     ) -> Self {
         Self {
             table_name,
             bucket,
             path_prefix,
             public_columns,
-            stream_id_mapping,
-            partition_time_mapping,
+            stream_id_mapping: create_default_stream_id_mapping(),
+            partition_time_mapping: create_default_partition_mapping(),
         }
     }
 
@@ -206,44 +231,4 @@ fn expected_type(data_type: &DataType) -> String {
         DataType::Timestamp(_, _) => "Timestamp".to_string(),
         other => format!("{other:?}"),
     }
-}
-
-// TODO: remove
-pub const DUMMY_TABLE: &str = "dummy_table";
-const DUMMY_TABLE_BUCKET: &str = "mangrobe-db-development";
-const DUMMY_TABLE_PATH_PREFIX: &str = "mangrobe-db";
-
-// TODO: remove dummy schema
-pub fn initial_dummy_table_schema() -> TableSchema {
-    TableSchema::new(
-        DUMMY_TABLE.to_string(),
-        DUMMY_TABLE_BUCKET.to_string(),
-        DUMMY_TABLE_PATH_PREFIX.to_string(),
-        vec![
-            PublicColumnDefinition::new("id", DataType::Int32),
-            PublicColumnDefinition::new("stream_id", DataType::Int32),
-            PublicColumnDefinition::new("message", DataType::Utf8),
-            PublicColumnDefinition::new("user", DataType::Utf8),
-            ColumnDefinition::new(
-                "posted_at",
-                DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
-            ),
-        ],
-        TableMapping::new(
-            PublicColumnDefinition::new("stream_id", DataType::Int32),
-            InternalColumnDefinition::new(to_internal_column_name("stream_id"), DataType::Int32),
-            MappingStrategy::Copy,
-        ),
-        TableMapping::new(
-            ColumnDefinition::new(
-                "posted_at",
-                DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
-            ),
-            InternalColumnDefinition::new(
-                to_internal_column_name("partition_time"),
-                DataType::Timestamp(arrow::datatypes::TimeUnit::Microsecond, None),
-            ),
-            MappingStrategy::ToHour,
-        ),
-    )
 }

@@ -144,7 +144,10 @@ impl<C: CatalogPort + 'static> DummyTableProvider<C> {
 }
 
 fn resolve_catalog_paths(table: &Table, files: &[CatalogFile]) -> Vec<String> {
-    files.iter().map(|file| table.build_path(file)).collect()
+    files
+        .iter()
+        .map(|file| table.build_full_path(file))
+        .collect()
 }
 
 fn build_public_schema(table: &Table) -> DataFusionResult<Schema> {

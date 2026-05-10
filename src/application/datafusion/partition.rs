@@ -244,7 +244,7 @@ fn scalar_value_as_timestamp_micros(value: &ScalarValue) -> Option<i64> {
 mod tests {
     use super::*;
     use crate::domain::table::Table;
-    use crate::domain::table_schema::initial_dummy_table_schema;
+    use crate::domain::table_schema::TableSchema;
     use datafusion::prelude::{col, lit};
     use rstest::rstest;
 
@@ -252,7 +252,12 @@ mod tests {
     const HOUR_MICROS: i64 = 60 * 60 * 1_000_000;
 
     fn table() -> Table {
-        Table::new(initial_dummy_table_schema())
+        Table::new(TableSchema::new(
+            "hello_table".into(),
+            "my_bucket".into(),
+            "path/prefix".into(),
+            vec![],
+        ))
     }
 
     fn timestamp_micros(value: i64) -> Expr {

@@ -1,3 +1,4 @@
+mod external_table_definition;
 pub mod service;
 
 use arrow::datatypes::SchemaRef;

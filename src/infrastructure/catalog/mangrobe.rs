@@ -10,9 +10,7 @@ use crate::domain::port::catalog::{
     TableSummary as CatalogTableSummary, TimeUnit as CatalogTimeUnit,
 };
 use crate::domain::statistics::{ColumnStatistics, StatisticValue};
-use crate::domain::table_schema::{DUMMY_TABLE, TableSchema, initial_dummy_table_schema};
-use crate::infrastructure::catalog::mock::{MockState, MockTable};
-use crate::infrastructure::catalog::persisted::PersistedState;
+use crate::domain::table_schema::TableSchema;
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use mangrobe_api_server::Mangrobe;
@@ -21,7 +19,7 @@ use mangrobe_api_server::proto::{
     AddFilesRequest, BoundInclusivity as MangrobeBoundInclusivity, Column as MangrobeColumn,
     ColumnStatisticsEntry as MangrobeColumnStatisticsEntry,
     CreateExternalTableRequest as MangrobeCreateExternalTableRequest, DataType as MangrobeDataType,
-    ExternalLocation as MangrobeExternalLocation,
+    EvolveTableSchemaRequest, ExternalLocation as MangrobeExternalLocation,
     FileColumnStatisticsType as MangrobeFileColumnStatisticsType, FileFormat as MangrobeFileFormat,
     FileMetadataEntry as MangrobeFileMetadataEntry, FileMetadataType as MangrobeFileMetadataType,
     GetCurrentStateRequest, GetFileInfoRequest, GetTableRequest as MangrobeGetTableRequest,
@@ -38,103 +36,25 @@ use prost_types::Timestamp;
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 use std::fmt;
-use std::fs;
-use std::path::PathBuf;
-use std::sync::Mutex;
-use tracing::debug;
 
-const DEFAULT_HALF_MOCKED_STATE_PATH: &str = "./data/mock/half_mocked_state.json";
-
-const DEFAULT_CATALOG_NAME: &str = "mangrobe_db";
-const DEFAULT_SCHEMA_NAME: &str = "default";
+pub const MANGROBE_DB_CATALOG_NAME: &str = "mangrobe_db";
+pub const MANGROBE_DB_SCHEMA_NAME: &str = "default";
 
 pub struct MangrobeCatalog {
     mangrobe: Mangrobe,
-    state_path: PathBuf,
-    state: Mutex<MockState>,
 }
 
 impl MangrobeCatalog {
-    pub fn load_default(db: DatabaseConnection) -> anyhow::Result<Self> {
-        Self::load(db, DEFAULT_HALF_MOCKED_STATE_PATH)
-    }
-
-    pub fn load(db: DatabaseConnection, state_path: impl Into<PathBuf>) -> anyhow::Result<Self> {
-        let state_path = state_path.into();
-        debug!(
-            state_path = %state_path.display(),
-            "loading half-mocked mangrobe catalog port"
-        );
-        let state = if state_path.exists() {
-            let json = fs::read_to_string(&state_path).with_context(|| {
-                format!(
-                    "failed to read half-mocked mangrobe state: {}",
-                    state_path.display()
-                )
-            })?;
-            serde_json::from_str::<PersistedState>(&json)
-                .with_context(|| {
-                    format!(
-                        "failed to parse half-mocked mangrobe state: {}",
-                        state_path.display()
-                    )
-                })?
-                .try_into_state()?
-        } else {
-            initial_schema_state()
-        };
-
-        Ok(Self {
+    pub fn new(db: DatabaseConnection) -> Self {
+        Self {
             mangrobe: Mangrobe::new_with_connection(db),
-            state_path,
-            state: Mutex::new(state),
-        })
-    }
-
-    fn save(&self, state: &MockState) -> anyhow::Result<()> {
-        debug!(
-            state_path = %self.state_path.display(),
-            "saving half-mocked mangrobe catalog schema state"
-        );
-        if let Some(parent) = self.state_path.parent() {
-            fs::create_dir_all(parent).with_context(|| {
-                format!(
-                    "failed to create half-mocked mangrobe state dir: {}",
-                    parent.display()
-                )
-            })?;
         }
-
-        let schema_only_state = schema_only_state(state);
-        let json =
-            serde_json::to_string_pretty(&PersistedState::try_from_state(&schema_only_state)?)
-                .context("failed to serialize half-mocked mangrobe state")?;
-        fs::write(&self.state_path, json).with_context(|| {
-            format!(
-                "failed to write half-mocked mangrobe state: {}",
-                self.state_path.display()
-            )
-        })?;
-        Ok(())
-    }
-
-    pub fn save_current_state(&self) -> anyhow::Result<()> {
-        debug!("saving current half-mocked mangrobe catalog schema state");
-        let state = self
-            .state
-            .lock()
-            .map_err(|_| anyhow!("half-mocked mangrobe catalog state lock is poisoned"))?;
-
-        self.save(&state)
     }
 }
 
 impl fmt::Debug for MangrobeCatalog {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("MangrobeCatalog")
-            .field("state_path", &self.state_path)
-            .field("state", &self.state)
-            .finish_non_exhaustive()
+        f.debug_struct("MangrobeCatalog").finish_non_exhaustive()
     }
 }
 
@@ -168,8 +88,8 @@ impl CatalogPort for MangrobeCatalog {
     )]
     async fn list_tables(&self) -> Result<Vec<CatalogTableSummary>, CatalogError> {
         let param = MangrobeListTablesRequest {
-            catalog_name: Some(DEFAULT_CATALOG_NAME.into()),
-            schema_name: Some(DEFAULT_SCHEMA_NAME.into()),
+            catalog_name: Some(MANGROBE_DB_CATALOG_NAME.into()),
+            schema_name: Some(MANGROBE_DB_SCHEMA_NAME.into()),
             ..Default::default()
         };
         let response = self.mangrobe.data_definition().list_tables(param).await?;
@@ -210,23 +130,24 @@ impl CatalogPort for MangrobeCatalog {
         from_mangrobe_table_definition(table).map_err(CatalogError::from)
     }
 
+    #[allow(
+        clippy::needless_update,
+        reason = "Keep the default update so this remains valid when the type is extended."
+    )]
     async fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError> {
-        debug!(
-            table_name,
-            "getting table schema from half-mocked mangrobe catalog port"
-        );
-        let state = self
-            .state
-            .lock()
-            .map_err(|_| anyhow!("half-mocked mangrobe catalog state lock is poisoned"))?;
+        let param = MangrobeGetTableRequest {
+            identifier: Some(to_mangrobe_table_identifier(table_name)),
+            ..Default::default()
+        };
+        let response = self.mangrobe.data_definition().get_table(param).await?;
+        let table = response
+            .table
+            .context("Mangrobe API returned get_table response without table")?;
 
-        state
-            .tables
-            .get(table_name)
-            .map(|table| table.schema.clone())
-            .ok_or_else(|| CatalogError::TableNotFound {
-                table_name: table_name.to_string(),
-            })
+        let table_schema = from_mangrobe_table_definition(table)
+            .map_err(CatalogError::from)?
+            .table_scheme();
+        Ok(table_schema)
     }
 
     #[allow(
@@ -342,30 +263,38 @@ impl CatalogPort for MangrobeCatalog {
             .map_err(CatalogError::from)
     }
 
+    #[allow(
+        clippy::needless_update,
+        reason = "Keep the default update so this remains valid when the type is extended."
+    )]
     async fn update_table_schema(
         &self,
         table_name: &str,
         schema: TableSchema,
     ) -> Result<(), CatalogError> {
-        debug!(
-            table_name,
-            "updating table schema in half-mocked mangrobe catalog port"
-        );
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| anyhow!("half-mocked mangrobe catalog state lock is poisoned"))?;
+        let proposed_columns = schema
+            .public_columns()
+            .iter()
+            .map(|column| {
+                Ok(to_mangrobe_column(CatalogTableColumn {
+                    name: column.name.clone(),
+                    data_type: CatalogColumnDataType::try_from(column.data_type().clone())?,
+                    nullable: true,
+                    comment: None,
+                }))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
-        let table =
-            state
-                .tables
-                .get_mut(table_name)
-                .ok_or_else(|| CatalogError::TableNotFound {
-                    table_name: table_name.to_string(),
-                })?;
+        let param = EvolveTableSchemaRequest {
+            identifier: Some(to_mangrobe_table_identifier(table_name)),
+            proposed_columns,
+            ..Default::default()
+        };
 
-        table.schema = schema;
-        self.save(&state)?;
+        self.mangrobe
+            .data_definition()
+            .evolve_table_schema(param)
+            .await?;
 
         Ok(())
     }
@@ -404,8 +333,8 @@ impl CatalogPort for MangrobeCatalog {
 
 fn to_mangrobe_table_identifier(table_name: &str) -> TableIdentifier {
     TableIdentifier {
-        catalog_name: DEFAULT_CATALOG_NAME.into(),
-        schema_name: DEFAULT_SCHEMA_NAME.into(),
+        catalog_name: MANGROBE_DB_CATALOG_NAME.into(),
+        schema_name: MANGROBE_DB_SCHEMA_NAME.into(),
         table_name: table_name.into(),
     }
 }
@@ -527,6 +456,7 @@ fn from_mangrobe_scalar_type(value: i32) -> anyhow::Result<CatalogColumnDataType
         .context("Mangrobe API returned invalid scalar type")?
     {
         MangrobeScalarType::Bool => Ok(CatalogColumnDataType::Bool),
+        MangrobeScalarType::Int32 => Ok(CatalogColumnDataType::Int32),
         MangrobeScalarType::Int64 => Ok(CatalogColumnDataType::Int64),
         MangrobeScalarType::Float64 => Ok(CatalogColumnDataType::Float64),
         MangrobeScalarType::String => Ok(CatalogColumnDataType::String),
@@ -638,6 +568,9 @@ fn to_mangrobe_data_type(data_type: CatalogColumnDataType) -> MangrobeDataType {
     MangrobeDataType {
         r#type: Some(match data_type {
             CatalogColumnDataType::Bool => data_type::Type::Scalar(MangrobeScalarType::Bool as i32),
+            CatalogColumnDataType::Int32 => {
+                data_type::Type::Scalar(MangrobeScalarType::Int32 as i32)
+            }
             CatalogColumnDataType::Int64 => {
                 data_type::Type::Scalar(MangrobeScalarType::Int64 as i32)
             }
@@ -663,37 +596,6 @@ fn to_mangrobe_time_unit(unit: CatalogTimeUnit) -> MangrobeTimeUnit {
         CatalogTimeUnit::Millisecond => MangrobeTimeUnit::Millisecond,
         CatalogTimeUnit::Microsecond => MangrobeTimeUnit::Microsecond,
         CatalogTimeUnit::Nanosecond => MangrobeTimeUnit::Nanosecond,
-    }
-}
-
-fn initial_schema_state() -> MockState {
-    let table = MockTable {
-        name: DUMMY_TABLE.to_string(),
-        schema: initial_dummy_table_schema(),
-        files: Vec::new(),
-    };
-    let mut tables = HashMap::new();
-    tables.insert(table.name.clone(), table);
-
-    MockState { tables }
-}
-
-fn schema_only_state(state: &MockState) -> MockState {
-    MockState {
-        tables: state
-            .tables
-            .iter()
-            .map(|(name, table)| {
-                (
-                    name.clone(),
-                    MockTable {
-                        name: table.name.clone(),
-                        schema: table.schema.clone(),
-                        files: Vec::new(),
-                    },
-                )
-            })
-            .collect(),
     }
 }
 

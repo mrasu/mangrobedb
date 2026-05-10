@@ -1,6 +1,7 @@
 mod error;
-pub mod import;
-pub mod query;
 pub mod server;
+mod sql_service;
+mod statement_handler;
+mod table_handler;
 
 pub use server::serve;

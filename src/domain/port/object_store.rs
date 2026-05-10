@@ -1,3 +1,4 @@
+use crate::domain::table::Table;
 use anyhow::Error;
 use object_store::ObjectStore;
 use std::path::Path;
@@ -6,9 +7,7 @@ use std::sync::Arc;
 pub trait ObjectStorePort {
     fn upload(
         &self,
-        table_name: &str,
-        bucket: &str,
-        path_prefix: &str,
+        table: &Table,
         table_relative_path: &str,
         local_temp_path: &Path,
     ) -> Result<(), Error>;
