@@ -1,12 +1,21 @@
+use crate::application::datafusion::column::to_internal_column_name;
 use crate::domain::port::catalog::{
     AddFile, AddFilesEntry, BoundInclusivity, CatalogError, CatalogFile, CatalogFileInfo,
-    CatalogPort, FileColumnStatisticsType, FileMetadata, FileMetadataType, PartitionTimeBound,
-    PartitionTimeFilter, PartitionTimePredicate, PartitionTimeRange,
+    CatalogPort, ColumnDataType as CatalogColumnDataType,
+    CreateExternalTableRequest as CatalogCreateExternalTableRequest, FileColumnStatisticsType,
+    FileMetadata, FileMetadataType, PartitionTimeBound, PartitionTimeFilter,
+    PartitionTimePredicate, PartitionTimeRange, TableColumn as CatalogTableColumn,
+    TimeUnit as CatalogTimeUnit,
 };
 use crate::domain::statistics::{ColumnStatistics, FileStatistics};
-use crate::domain::table_schema::{DUMMY_TABLE, TableSchema, initial_dummy_table_schema};
+use crate::domain::table_mapping::{MappingStrategy, TableMapping};
+use crate::domain::table_schema::{
+    DUMMY_TABLE, InternalColumnDefinition, PublicColumnDefinition, TableSchema,
+    initial_dummy_table_schema,
+};
 use crate::infrastructure::catalog::persisted::PersistedState;
 use anyhow::{Context, anyhow};
+use arrow::datatypes::{DataType, TimeUnit as ArrowTimeUnit};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fs;
@@ -102,6 +111,37 @@ impl MockCatalog {
 
 #[async_trait]
 impl CatalogPort for MockCatalog {
+    async fn create_external_table(
+        &self,
+        request: CatalogCreateExternalTableRequest,
+    ) -> Result<(), CatalogError> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("mock catalog port state lock is poisoned"))?;
+        let table_name = request.table.table_name.clone();
+
+        if state.tables.contains_key(&table_name) {
+            if request.skip_if_exists {
+                return Ok(());
+            }
+
+            return Err(CatalogError::Internal(anyhow!(
+                "table already exists: {table_name}"
+            )));
+        }
+
+        let table = MockTable {
+            name: table_name.clone(),
+            schema: to_table_schema(request.table)?,
+            files: Vec::new(),
+        };
+        state.tables.insert(table_name, table);
+
+        self.save(&state)?;
+        Ok(())
+    }
+
     async fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError> {
         debug!(table_name, "getting table schema from mock catalog port");
         let state = self
@@ -259,6 +299,86 @@ impl CatalogPort for MockCatalog {
 
         self.save(&state)?;
         Ok(())
+    }
+}
+
+fn to_table_schema(
+    table: crate::domain::port::catalog::ExternalTableDefinition,
+) -> Result<TableSchema, CatalogError> {
+    let stream_id_column = table
+        .columns
+        .iter()
+        .find(|column| column.name == "stream_id")
+        .ok_or_else(|| CatalogError::Internal(anyhow!("stream_id column is required")))?;
+    let partition_field = table
+        .partition_fields
+        .first()
+        .ok_or_else(|| CatalogError::Internal(anyhow!("partition field is required")))?;
+    let partition_column = table
+        .columns
+        .iter()
+        .find(|column| column.name == partition_field.source_column)
+        .ok_or_else(|| {
+            CatalogError::Internal(anyhow!(
+                "partition source column not found: {}",
+                partition_field.source_column
+            ))
+        })?;
+
+    let public_columns = table
+        .columns
+        .iter()
+        .cloned()
+        .map(to_public_column_definition)
+        .collect();
+    let stream_id_mapping = TableMapping::new(
+        to_public_column_definition(stream_id_column.clone()),
+        InternalColumnDefinition::new(
+            to_internal_column_name("stream_id"),
+            to_arrow_data_type(&stream_id_column.data_type),
+        ),
+        MappingStrategy::Copy,
+    );
+    let partition_time_mapping = TableMapping::new(
+        to_public_column_definition(partition_column.clone()),
+        InternalColumnDefinition::new(
+            to_internal_column_name("partition_time"),
+            DataType::Timestamp(ArrowTimeUnit::Microsecond, None),
+        ),
+        MappingStrategy::ToHour,
+    );
+
+    Ok(TableSchema::new(
+        table.table_name,
+        table.location.bucket,
+        table.location.prefix,
+        public_columns,
+        stream_id_mapping,
+        partition_time_mapping,
+    ))
+}
+
+fn to_public_column_definition(column: CatalogTableColumn) -> PublicColumnDefinition {
+    PublicColumnDefinition::new(column.name, to_arrow_data_type(&column.data_type))
+}
+
+fn to_arrow_data_type(data_type: &CatalogColumnDataType) -> DataType {
+    match data_type {
+        CatalogColumnDataType::Bool => DataType::Boolean,
+        CatalogColumnDataType::Int64 => DataType::Int64,
+        CatalogColumnDataType::Float64 => DataType::Float64,
+        CatalogColumnDataType::String => DataType::Utf8,
+        CatalogColumnDataType::Date => DataType::Date32,
+        CatalogColumnDataType::Time(unit) => DataType::Timestamp(to_arrow_time_unit(*unit), None),
+    }
+}
+
+fn to_arrow_time_unit(unit: CatalogTimeUnit) -> ArrowTimeUnit {
+    match unit {
+        CatalogTimeUnit::Second => ArrowTimeUnit::Second,
+        CatalogTimeUnit::Millisecond => ArrowTimeUnit::Millisecond,
+        CatalogTimeUnit::Microsecond => ArrowTimeUnit::Microsecond,
+        CatalogTimeUnit::Nanosecond => ArrowTimeUnit::Nanosecond,
     }
 }
 

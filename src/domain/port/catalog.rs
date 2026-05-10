@@ -16,6 +16,11 @@ pub enum CatalogError {
 
 #[async_trait]
 pub trait CatalogPort: Debug + Send + Sync {
+    async fn create_external_table(
+        &self,
+        request: CreateExternalTableRequest,
+    ) -> Result<(), CatalogError>;
+
     async fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError>;
 
     async fn get_current_state(
@@ -46,6 +51,74 @@ pub trait CatalogPort: Debug + Send + Sync {
         stream_id: i64,
         entries: Vec<AddFilesEntry>,
     ) -> Result<(), CatalogError>;
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CreateExternalTableRequest {
+    pub table: ExternalTableDefinition,
+    pub skip_if_exists: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternalTableDefinition {
+    pub table_name: String,
+    pub location: ExternalLocation,
+    pub format: FileFormat,
+    pub columns: Vec<TableColumn>,
+    pub partition_fields: Vec<PartitionField>,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExternalLocation {
+    pub bucket: String,
+    pub prefix: String,
+    pub endpoint: Option<String>,
+    pub region: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TableColumn {
+    pub name: String,
+    pub data_type: ColumnDataType,
+    pub nullable: bool,
+    pub comment: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ColumnDataType {
+    Bool,
+    Int64,
+    Float64,
+    String,
+    Date,
+    Time(TimeUnit),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TimeUnit {
+    Second,
+    Millisecond,
+    Microsecond,
+    Nanosecond,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartitionField {
+    pub source_column: String,
+    pub destination_column: Option<String>,
+    pub transform: PartitionTransform,
+    pub result_type: ColumnDataType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartitionTransform {
+    Identity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileFormat {
+    Vortex,
 }
 
 #[derive(Debug, Clone)]

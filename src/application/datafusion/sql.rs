@@ -9,15 +9,13 @@ use datafusion::logical_expr::LogicalPlan;
 use datafusion::sql::parser::Statement;
 use datafusion_expr::utils::expr_to_columns;
 
-pub async fn execute_sql(
+pub async fn execute_statement(
     ctx: &SessionContext,
-    sql: &str,
+    statement: Statement,
     allowed_tables: &[&str],
 ) -> Result<DataFrame, DataFusionError> {
     let state = ctx.state();
-    let dialect = state.config().options().sql_parser.dialect;
 
-    let statement = state.sql_to_statement(sql, &dialect)?;
     validate_statement(&state, &statement, allowed_tables)?;
 
     let plan = state.statement_to_plan(statement).await?;
