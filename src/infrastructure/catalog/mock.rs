@@ -2,9 +2,13 @@ use crate::application::datafusion::column::to_internal_column_name;
 use crate::domain::port::catalog::{
     AddFile, AddFilesEntry, BoundInclusivity, CatalogError, CatalogFile, CatalogFileInfo,
     CatalogPort, ColumnDataType as CatalogColumnDataType,
-    CreateExternalTableRequest as CatalogCreateExternalTableRequest, FileColumnStatisticsType,
-    FileMetadata, FileMetadataType, PartitionTimeBound, PartitionTimeFilter,
-    PartitionTimePredicate, PartitionTimeRange, TableColumn as CatalogTableColumn,
+    CreateExternalTableRequest as CatalogCreateExternalTableRequest,
+    ExternalLocation as CatalogExternalLocation,
+    ExternalTableDefinition as CatalogExternalTableDefinition, FileColumnStatisticsType,
+    FileFormat as CatalogFileFormat, FileMetadata, FileMetadataType,
+    PartitionField as CatalogPartitionField, PartitionTimeBound, PartitionTimeFilter,
+    PartitionTimePredicate, PartitionTimeRange, PartitionTransform as CatalogPartitionTransform,
+    TableColumn as CatalogTableColumn, TableSummary as CatalogTableSummary,
     TimeUnit as CatalogTimeUnit,
 };
 use crate::domain::statistics::{ColumnStatistics, FileStatistics};
@@ -140,6 +144,46 @@ impl CatalogPort for MockCatalog {
 
         self.save(&state)?;
         Ok(())
+    }
+
+    async fn list_tables(&self) -> Result<Vec<CatalogTableSummary>, CatalogError> {
+        debug!("listing tables from mock catalog port");
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("mock catalog port state lock is poisoned"))?;
+
+        let mut tables = state
+            .tables
+            .values()
+            .map(|table| CatalogTableSummary {
+                table_name: table.name.clone(),
+                comment: None,
+            })
+            .collect::<Vec<_>>();
+        tables.sort_by(|left, right| left.table_name.cmp(&right.table_name));
+
+        Ok(tables)
+    }
+
+    async fn get_table(
+        &self,
+        table_name: &str,
+    ) -> Result<CatalogExternalTableDefinition, CatalogError> {
+        debug!(table_name, "getting table from mock catalog port");
+        let state = self
+            .state
+            .lock()
+            .map_err(|_| anyhow!("mock catalog port state lock is poisoned"))?;
+
+        let table = state
+            .tables
+            .get(table_name)
+            .ok_or_else(|| CatalogError::TableNotFound {
+                table_name: table_name.to_string(),
+            })?;
+
+        to_external_table_definition(&table.schema).map_err(CatalogError::from)
     }
 
     async fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError> {
@@ -302,6 +346,43 @@ impl CatalogPort for MockCatalog {
     }
 }
 
+fn to_external_table_definition(
+    schema: &TableSchema,
+) -> anyhow::Result<CatalogExternalTableDefinition> {
+    let columns = schema
+        .public_columns()
+        .iter()
+        .map(|column| {
+            Ok(CatalogTableColumn {
+                name: column.name.clone(),
+                data_type: from_arrow_data_type(column.data_type())?,
+                nullable: true,
+                comment: None,
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let partition_column = schema.partition_time_mapping().src_column_ref();
+
+    Ok(CatalogExternalTableDefinition {
+        table_name: schema.table_name.clone(),
+        location: CatalogExternalLocation {
+            bucket: schema.bucket.clone(),
+            prefix: schema.path_prefix.clone(),
+            endpoint: None,
+            region: None,
+        },
+        format: CatalogFileFormat::Vortex,
+        columns,
+        partition_fields: vec![CatalogPartitionField {
+            source_column: partition_column.name.clone(),
+            destination_column: None,
+            transform: CatalogPartitionTransform::Identity,
+            result_type: from_arrow_data_type(partition_column.data_type())?,
+        }],
+        comment: None,
+    })
+}
+
 fn to_table_schema(
     table: crate::domain::port::catalog::ExternalTableDefinition,
 ) -> Result<TableSchema, CatalogError> {
@@ -379,6 +460,29 @@ fn to_arrow_time_unit(unit: CatalogTimeUnit) -> ArrowTimeUnit {
         CatalogTimeUnit::Millisecond => ArrowTimeUnit::Millisecond,
         CatalogTimeUnit::Microsecond => ArrowTimeUnit::Microsecond,
         CatalogTimeUnit::Nanosecond => ArrowTimeUnit::Nanosecond,
+    }
+}
+
+fn from_arrow_data_type(data_type: &DataType) -> anyhow::Result<CatalogColumnDataType> {
+    match data_type {
+        DataType::Boolean => Ok(CatalogColumnDataType::Bool),
+        DataType::Int32 | DataType::Int64 => Ok(CatalogColumnDataType::Int64),
+        DataType::Float64 => Ok(CatalogColumnDataType::Float64),
+        DataType::Utf8 => Ok(CatalogColumnDataType::String),
+        DataType::Date32 => Ok(CatalogColumnDataType::Date),
+        DataType::Timestamp(unit, _) => {
+            Ok(CatalogColumnDataType::Time(from_arrow_time_unit(*unit)))
+        }
+        other => Err(anyhow!("unsupported mock catalog column type: {other:?}")),
+    }
+}
+
+fn from_arrow_time_unit(unit: ArrowTimeUnit) -> CatalogTimeUnit {
+    match unit {
+        ArrowTimeUnit::Second => CatalogTimeUnit::Second,
+        ArrowTimeUnit::Millisecond => CatalogTimeUnit::Millisecond,
+        ArrowTimeUnit::Microsecond => CatalogTimeUnit::Microsecond,
+        ArrowTimeUnit::Nanosecond => CatalogTimeUnit::Nanosecond,
     }
 }
 

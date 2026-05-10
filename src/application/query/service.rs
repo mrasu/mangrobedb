@@ -6,17 +6,21 @@ use crate::application::error::{ApplicationError, ApplicationUserError};
 use crate::application::query::QueryOutput;
 use crate::domain::port::catalog::{
     CatalogPort, ColumnDataType, CreateExternalTableRequest, ExternalLocation,
-    ExternalTableDefinition, FileFormat, PartitionField, PartitionTransform, TableColumn, TimeUnit,
+    ExternalTableDefinition, FileFormat, PartitionField, PartitionTransform, TableColumn,
+    TableSummary, TimeUnit,
 };
 use crate::domain::port::object_store::ObjectStorePort;
 use crate::domain::table::Table;
 use crate::domain::table_schema::DUMMY_TABLE;
-use arrow::datatypes::Schema;
+use arrow::array::{ArrayRef, StringArray};
+use arrow::datatypes::{DataType, Field, Schema};
+use arrow::record_batch::RecordBatch;
 use datafusion::prelude::SessionContext;
 use datafusion::sql::parser::{CreateExternalTable, Statement};
 use datafusion::sql::sqlparser::ast::{
-    ColumnDef, ColumnOption, DataType as SqlDataType, ObjectName, Value,
+    ColumnDef, ColumnOption, DataType as SqlDataType, ObjectName, ShowCreateObject, Value,
 };
+use serde_json::json;
 use url::Url;
 
 #[derive(Debug)]
@@ -45,9 +49,14 @@ impl<C: CatalogPort + 'static, O: ObjectStorePort> QueryService<C, O> {
                     self.query_statement(ctx, Statement::Statement(statement))
                         .await
                 }
+                datafusion::sql::sqlparser::ast::Statement::ShowCreate {
+                    obj_type,
+                    obj_name,
+                } => self.show_create_table(obj_type, obj_name).await,
                 _ => Err(ApplicationUserError::NotImplemented {
-                    message: "only SELECT queries and CREATE EXTERNAL TABLE are supported"
-                        .to_string(),
+                    message:
+                        "only SELECT queries, CREATE EXTERNAL TABLE, and SHOW CREATE TABLE are supported"
+                            .to_string(),
                 }
                 .into()),
             },
@@ -55,10 +64,16 @@ impl<C: CatalogPort + 'static, O: ObjectStorePort> QueryService<C, O> {
                 self.create_external_table(statement).await
             }
             _ => Err(ApplicationUserError::NotImplemented {
-                message: "only SELECT queries and CREATE EXTERNAL TABLE are supported".to_string(),
+                message:
+                    "only SELECT queries, CREATE EXTERNAL TABLE, and SHOW CREATE TABLE are supported"
+                        .to_string(),
             }
             .into()),
         }
+    }
+
+    pub async fn list_tables(&self) -> Result<Vec<TableSummary>, ApplicationError> {
+        Ok(self.catalog_port.list_tables().await?)
     }
 
     async fn create_external_table(
@@ -71,6 +86,50 @@ impl<C: CatalogPort + 'static, O: ObjectStorePort> QueryService<C, O> {
         Ok(QueryOutput {
             schema: Arc::new(Schema::empty()),
             batches: Vec::new(),
+        })
+    }
+
+    async fn show_create_table(
+        &self,
+        obj_type: &ShowCreateObject,
+        obj_name: &ObjectName,
+    ) -> Result<QueryOutput, ApplicationError> {
+        if obj_type != &ShowCreateObject::Table {
+            return Err(ApplicationUserError::NotImplemented {
+                message: format!("SHOW CREATE {obj_type} is not supported"),
+            }
+            .into());
+        }
+
+        let table_name = single_table_name(obj_name)?;
+        let table = self.catalog_port.get_table(&table_name).await?;
+        let location = location_uri(&table.location);
+        let format = file_format_label(table.format);
+        let columns_json = columns_json(&table.columns);
+        let partition_fields_json = partition_fields_json(&table.partition_fields);
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("table_name", DataType::Utf8, false),
+            Field::new("location", DataType::Utf8, false),
+            Field::new("format", DataType::Utf8, false),
+            Field::new("columns_json", DataType::Utf8, false),
+            Field::new("partition_fields_json", DataType::Utf8, false),
+            Field::new("comment", DataType::Utf8, true),
+        ]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![
+                Arc::new(StringArray::from(vec![table.table_name])) as ArrayRef,
+                Arc::new(StringArray::from(vec![location])) as ArrayRef,
+                Arc::new(StringArray::from(vec![format])) as ArrayRef,
+                Arc::new(StringArray::from(vec![columns_json])) as ArrayRef,
+                Arc::new(StringArray::from(vec![partition_fields_json])) as ArrayRef,
+                Arc::new(StringArray::from(vec![table.comment])) as ArrayRef,
+            ],
+        )?;
+
+        Ok(QueryOutput {
+            schema,
+            batches: vec![batch],
         })
     }
 
@@ -227,6 +286,73 @@ fn single_table_name(name: &ObjectName) -> Result<String, ApplicationError> {
     };
 
     Ok(ident.value.clone())
+}
+
+fn location_uri(location: &ExternalLocation) -> String {
+    if location.prefix.is_empty() {
+        format!("s3://{}", location.bucket)
+    } else {
+        format!("s3://{}/{}", location.bucket, location.prefix)
+    }
+}
+
+fn file_format_label(format: FileFormat) -> &'static str {
+    match format {
+        FileFormat::Vortex => "VORTEX",
+    }
+}
+
+fn columns_json(columns: &[TableColumn]) -> String {
+    let columns = columns
+        .iter()
+        .map(|column| {
+            json!({
+                "name": column.name,
+                "data_type": column_data_type_label(&column.data_type),
+                "nullable": column.nullable,
+                "comment": column.comment,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    serde_json::to_string(&columns).expect("table columns JSON serialization should not fail")
+}
+
+fn partition_fields_json(partition_fields: &[PartitionField]) -> String {
+    let partition_fields = partition_fields
+        .iter()
+        .map(|field| {
+            json!({
+                "source_column": field.source_column,
+                "destination_column": field.destination_column,
+                "transform": partition_transform_label(field.transform),
+                "result_type": column_data_type_label(&field.result_type),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    serde_json::to_string(&partition_fields)
+        .expect("partition fields JSON serialization should not fail")
+}
+
+fn partition_transform_label(transform: PartitionTransform) -> &'static str {
+    match transform {
+        PartitionTransform::Identity => "IDENTITY",
+    }
+}
+
+fn column_data_type_label(data_type: &ColumnDataType) -> &'static str {
+    match data_type {
+        ColumnDataType::Bool => "BOOL",
+        ColumnDataType::Int64 => "INT64",
+        ColumnDataType::Float64 => "FLOAT64",
+        ColumnDataType::String => "STRING",
+        ColumnDataType::Date => "DATE",
+        ColumnDataType::Time(TimeUnit::Second) => "TIME_SECOND",
+        ColumnDataType::Time(TimeUnit::Millisecond) => "TIME_MILLISECOND",
+        ColumnDataType::Time(TimeUnit::Microsecond) => "TIME_MICROSECOND",
+        ColumnDataType::Time(TimeUnit::Nanosecond) => "TIME_NANOSECOND",
+    }
 }
 
 fn to_external_location(

@@ -7,14 +7,20 @@ use crate::domain::common_ports::CommonPorts;
 use crate::infrastructure::catalog::mangrobe::MangrobeCatalog;
 use crate::infrastructure::object_store::S3ObjectStore;
 use crate::infrastructure::uuid::RandomUuid;
+use crate::server::flight::error::FlightServerError;
 use crate::server::task::flusher::Flusher;
 use crate::util::db::connect;
+use anyhow::anyhow;
+use arrow::datatypes::Schema;
 use arrow_flight::flight_service_server::{FlightService, FlightServiceServer};
 use arrow_flight::sql::server::{FlightSqlService, PeekableFlightDataStream};
 use arrow_flight::sql::{
-    CommandStatementIngest, CommandStatementQuery, ProstMessageExt, SqlInfo, TicketStatementQuery,
+    CommandGetTables, CommandStatementIngest, CommandStatementQuery, ProstMessageExt, SqlInfo,
+    TicketStatementQuery,
 };
+use arrow_flight::utils::batches_to_flight_data;
 use arrow_flight::{FlightDescriptor, FlightEndpoint, FlightInfo, Ticket};
+use futures::stream;
 use prost::Message;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -24,6 +30,9 @@ use tracing::error;
 
 pub type SharedImportService = Arc<ImportService<MangrobeCatalog, S3ObjectStore>>;
 pub type SharedQueryService = Arc<QueryService<MangrobeCatalog, S3ObjectStore>>;
+
+const DEFAULT_CATALOG_NAME: &str = "mangrobe_db";
+const DEFAULT_SCHEMA_NAME: &str = "default";
 
 #[derive(Debug)]
 pub struct MangrobeFlightService {
@@ -123,6 +132,26 @@ impl FlightSqlService for MangrobeFlightService {
         }))
     }
 
+    async fn get_flight_info_tables(
+        &self,
+        query: CommandGetTables,
+        request: Request<FlightDescriptor>,
+    ) -> Result<Response<FlightInfo>, Status> {
+        let flight_descriptor = request.into_inner();
+        let ticket = Ticket {
+            ticket: query.as_any().encode_to_vec().into(),
+        };
+        let endpoint = FlightEndpoint::new().with_ticket(ticket);
+
+        let flight_info = FlightInfo::new()
+            .try_with_schema(&query.into_builder().schema())
+            .map_err(|error| Status::internal(format!("unable to encode schema: {error}")))?
+            .with_endpoint(endpoint)
+            .with_descriptor(flight_descriptor);
+
+        Ok(Response::new(flight_info))
+    }
+
     /// Get a FlightDataStream containing the query results.
     async fn do_get_statement(
         &self,
@@ -135,6 +164,46 @@ impl FlightSqlService for MangrobeFlightService {
         let output = query::handle_do_get_statement(&self.query_service, &sql)
             .await
             .map_err(|err| err.handle_then_to_status())?;
+
+        Ok(Response::new(Box::pin(output)))
+    }
+
+    async fn do_get_tables(
+        &self,
+        query: CommandGetTables,
+        _request: Request<Ticket>,
+    ) -> Result<Response<<Self as FlightService>::DoGetStream>, Status> {
+        if query.include_schema {
+            return Err(Status::unimplemented(
+                "CommandGetTables include_schema is not supported",
+            ));
+        }
+
+        let tables = self
+            .query_service
+            .list_tables()
+            .await
+            .map_err(|error| FlightServerError::from(error).handle_then_to_status())?;
+
+        let table_schema = Schema::empty();
+        let mut builder = query.into_builder();
+        for table in tables {
+            builder
+                .append(
+                    DEFAULT_CATALOG_NAME,
+                    DEFAULT_SCHEMA_NAME,
+                    table.table_name,
+                    "TABLE",
+                    &table_schema,
+                )
+                .map_err(Status::from)?;
+        }
+
+        let schema = builder.schema();
+        let batch = builder.build().map_err(Status::from)?;
+        let flight_data = batches_to_flight_data(schema.as_ref(), vec![batch])
+            .map_err(|error| Status::internal(anyhow!(error).to_string()))?;
+        let output = stream::iter(flight_data.into_iter().map(Ok));
 
         Ok(Response::new(Box::pin(output)))
     }

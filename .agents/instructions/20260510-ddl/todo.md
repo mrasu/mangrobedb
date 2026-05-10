@@ -17,12 +17,12 @@ already fixed.
    - Parse `CREATE EXTERNAL TABLE` in `do_get_statement`.
    - Convert DataFusion DDL fields to mangrobe table-definition request fields.
    - Return an empty successful Flight stream/result after creation.
-- [ ] List Table
+- [x] List Table
    - Add catalog data-definition support needed for `list_tables`.
    - Implement `get_flight_info_tables`.
    - Implement `do_get_tables`.
    - Return standard Flight SQL table listing rows.
-- [ ] Show Table
+- [x] Show Table
    - Add catalog data-definition support needed for `get_table`.
    - Parse `SHOW CREATE TABLE table_name` in `do_get_statement`.
    - Convert mangrobe table metadata to the agreed detailed result shape.

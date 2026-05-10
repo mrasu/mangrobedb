@@ -21,6 +21,10 @@ pub trait CatalogPort: Debug + Send + Sync {
         request: CreateExternalTableRequest,
     ) -> Result<(), CatalogError>;
 
+    async fn list_tables(&self) -> Result<Vec<TableSummary>, CatalogError>;
+
+    async fn get_table(&self, table_name: &str) -> Result<ExternalTableDefinition, CatalogError>;
+
     async fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError>;
 
     async fn get_current_state(
@@ -57,6 +61,12 @@ pub trait CatalogPort: Debug + Send + Sync {
 pub struct CreateExternalTableRequest {
     pub table: ExternalTableDefinition,
     pub skip_if_exists: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableSummary {
+    pub table_name: String,
+    pub comment: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
