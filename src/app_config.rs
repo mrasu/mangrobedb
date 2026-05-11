@@ -26,16 +26,16 @@ impl AppConfig {
         if let Some(path) = config_path {
             builder = builder.add_source(File::from(path.to_path_buf()).required(true));
         } else {
-            let default_config_path = Path::new("mangrobe_db.yaml");
+            let default_config_path = Path::new("mangrobedb.yaml");
             if default_config_path.exists() {
                 builder =
-                    builder.add_source(File::new("mangrobe_db", FileFormat::Yaml).required(true));
+                    builder.add_source(File::new("mangrobedb", FileFormat::Yaml).required(true));
             }
         }
 
         builder
             .add_source(
-                Environment::with_prefix("MANGROBE_DB")
+                Environment::with_prefix("MANGROBEDB")
                     .prefix_separator("_")
                     .separator("__"),
             )

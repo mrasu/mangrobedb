@@ -7,7 +7,7 @@ use futures::StreamExt;
 use tonic::transport::Channel;
 
 const DEFAULT_ADDR: &str = "127.0.0.1:50051";
-const DEFAULT_CATALOG_NAME: &str = "mangrobe_db";
+const DEFAULT_CATALOG_NAME: &str = "mangrobedb";
 const DEFAULT_SCHEMA_NAME: &str = "default";
 
 #[tokio::main]

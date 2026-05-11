@@ -5,7 +5,7 @@ Schemaless OLAPDB for AI and streaming workloads
 ## Features
 
 * Fast
-   * 1000+ QPS streaming ingestion
+   * four-digit QPS streaming ingestion
 * Cost-efficient
    * S3-compatible object storage as the primary data layer
 * Low maintenance

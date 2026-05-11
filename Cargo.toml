@@ -1,8 +1,8 @@
 [package]
-name = "mangrobe-db"
+name = "mangrobedb"
 version = "0.1.0"
 edition = "2024"
-default-run = "mangrobe-db"
+default-run = "mangrobedb"
 
 [dependencies]
 anyhow = "1"

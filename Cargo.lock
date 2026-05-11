@@ -3432,7 +3432,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "mangrobe-db"
+name = "mangrobedb"
 version = "0.1.0"
 dependencies = [
  "anyhow",

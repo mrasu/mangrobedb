@@ -1,6 +1,6 @@
 use crate::domain::statistics::{ColumnStatistics, FileStatistics};
 use crate::domain::table_schema::{PublicColumnDefinition, TableSchema, TableSchemaError};
-use crate::infrastructure::catalog::mangrobe::{MANGROBE_DB_CATALOG_NAME, MANGROBE_DB_SCHEMA_NAME};
+use crate::infrastructure::catalog::mangrobe::{MANGROBEDB_CATALOG_NAME, MANGROBEDB_SCHEMA_NAME};
 use arrow::datatypes::DataType;
 use arrow::datatypes::TimeUnit::{Microsecond, Millisecond, Nanosecond, Second};
 use async_trait::async_trait;
@@ -71,11 +71,11 @@ pub struct TableSummary {
 
 impl TableSummary {
     pub fn catalog_name(&self) -> &str {
-        MANGROBE_DB_CATALOG_NAME
+        MANGROBEDB_CATALOG_NAME
     }
 
     pub fn schema_name(&self) -> &str {
-        MANGROBE_DB_SCHEMA_NAME
+        MANGROBEDB_SCHEMA_NAME
     }
 
     pub fn table_type(&self) -> String {

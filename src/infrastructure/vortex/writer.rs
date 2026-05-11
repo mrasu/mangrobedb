@@ -8,7 +8,7 @@ use vortex::array::arrow::FromArrowArray;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::session::VortexSession;
 
-const TEMP_SUBDIR: &str = "mangrobe-db";
+const TEMP_SUBDIR: &str = "mangrobedb";
 
 #[derive(Debug)]
 pub struct VortexWriteResult {

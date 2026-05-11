@@ -37,8 +37,9 @@ use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 use std::fmt;
 
-pub const MANGROBE_DB_CATALOG_NAME: &str = "mangrobe_db";
-pub const MANGROBE_DB_SCHEMA_NAME: &str = "default";
+// TODO: override in config
+pub const MANGROBEDB_CATALOG_NAME: &str = "mangrobedb";
+pub const MANGROBEDB_SCHEMA_NAME: &str = "default";
 
 pub struct MangrobeCatalog {
     mangrobe: Mangrobe,
@@ -88,8 +89,8 @@ impl CatalogPort for MangrobeCatalog {
     )]
     async fn list_tables(&self) -> Result<Vec<CatalogTableSummary>, CatalogError> {
         let param = MangrobeListTablesRequest {
-            catalog_name: Some(MANGROBE_DB_CATALOG_NAME.into()),
-            schema_name: Some(MANGROBE_DB_SCHEMA_NAME.into()),
+            catalog_name: Some(MANGROBEDB_CATALOG_NAME.into()),
+            schema_name: Some(MANGROBEDB_SCHEMA_NAME.into()),
             ..Default::default()
         };
         let response = self.mangrobe.data_definition().list_tables(param).await?;
@@ -333,8 +334,8 @@ impl CatalogPort for MangrobeCatalog {
 
 fn to_mangrobe_table_identifier(table_name: &str) -> TableIdentifier {
     TableIdentifier {
-        catalog_name: MANGROBE_DB_CATALOG_NAME.into(),
-        schema_name: MANGROBE_DB_SCHEMA_NAME.into(),
+        catalog_name: MANGROBEDB_CATALOG_NAME.into(),
+        schema_name: MANGROBEDB_SCHEMA_NAME.into(),
         table_name: table_name.into(),
     }
 }

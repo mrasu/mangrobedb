@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
     let app_config = AppConfig::load(cli.config.as_deref())?;
 
-    println!("mangrobe-db Flight server listening on {}", cli.addr);
+    println!("mangrobedb Flight server listening on {}", cli.addr);
     flight::serve(cli.addr, &app_config).await?;
 
     Ok(())
