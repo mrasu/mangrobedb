@@ -34,7 +34,7 @@ impl ObjectStorePort for S3ObjectStore {
         table_relative_path: &str,
         local_temp_path: &Path,
     ) -> Result<(), anyhow::Error> {
-        self.assert_accessible(&table.schema.bucket)?;
+        self.assert_accessible(&table.schema.location.bucket)?;
 
         let payload = std::fs::read(local_temp_path)?;
         let location = table.build_object_path(table_relative_path);

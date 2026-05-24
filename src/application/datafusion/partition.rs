@@ -1,22 +1,19 @@
-use crate::domain::port::catalog::{
-    BoundInclusivity, PartitionTimeBound, PartitionTimeFilter, PartitionTimePredicate,
-    PartitionTimeRange,
+use crate::domain::partition::Partition;
+use crate::domain::partition_filter::PartitionFilter;
+use crate::domain::partition_range::{
+    intersect_optional_ranges, BoundInclusivity, PartitionRange, PartitionRangeVec,
 };
 use crate::domain::table::Table;
-use crate::domain::time_range::{
-    ExpandedPartitionTimes, TimeRange, TimeRangeBound, TimeRangeVec, intersect_optional_ranges,
-};
-use crate::util::time::truncate_microsecond_to_hour;
 use datafusion::common::{DataFusionError, ScalarValue};
 use datafusion::error::Result as DataFusionResult;
 use datafusion::logical_expr::Operator;
 use datafusion::prelude::Expr;
 
-pub(super) fn extract_partition_times(
+pub(super) fn extract_partition_filter(
     table: &Table,
     filters: &[Expr],
-) -> DataFusionResult<Option<PartitionTimeFilter>> {
-    let partition_ranges = extract_partition_time_ranges(table, filters)?;
+) -> DataFusionResult<Option<PartitionFilter>> {
+    let partition_ranges = extract_partition_ranges(table, filters)?;
     let Some(partition_ranges) = partition_ranges else {
         return Ok(None);
     };
@@ -24,123 +21,76 @@ pub(super) fn extract_partition_times(
         return Ok(None);
     }
 
-    let partition_times = match partition_ranges.to_expanded_partition_times() {
-        ExpandedPartitionTimes::Ranges(ranges) => PartitionTimeFilter {
-            predicates: ranges.into_iter().map(range_to_predicate).collect(),
-        },
-        ExpandedPartitionTimes::OpenStart { end } => PartitionTimeFilter {
-            predicates: vec![PartitionTimePredicate::Range(PartitionTimeRange {
-                lower: None,
-                upper: Some(bound_to_partition_bound(end)),
-            })],
-        },
-        ExpandedPartitionTimes::OpenEnd { start } => PartitionTimeFilter {
-            predicates: vec![PartitionTimePredicate::Range(PartitionTimeRange {
-                lower: Some(bound_to_partition_bound(start)),
-                upper: None,
-            })],
-        },
-        ExpandedPartitionTimes::FullyOpen => PartitionTimeFilter::default(),
-    };
-
-    Ok(Some(partition_times))
+    let filter =
+        PartitionFilter::new_from_expanded_partition(partition_ranges.to_expanded_partitions());
+    Ok(Some(filter))
 }
 
-fn range_to_predicate(range: TimeRange) -> PartitionTimePredicate {
-    if let (Some(start), Some(end)) = (range.start, range.end)
-        && start.hour_micros == end.hour_micros
-        && start.inclusivity == BoundInclusivity::Inclusive
-        && end.inclusivity == BoundInclusivity::Inclusive
-    {
-        return PartitionTimePredicate::In(vec![start.hour_micros]);
-    }
-
-    PartitionTimePredicate::Range(PartitionTimeRange {
-        lower: range.start.map(bound_to_partition_bound),
-        upper: range.end.map(bound_to_partition_bound),
-    })
-}
-
-fn bound_to_partition_bound(bound: TimeRangeBound) -> PartitionTimeBound {
-    PartitionTimeBound {
-        time: bound.hour_micros,
-        inclusivity: bound.inclusivity,
-    }
-}
-
-fn extract_partition_time_ranges(
+fn extract_partition_ranges(
     table: &Table,
     filters: &[Expr],
-) -> DataFusionResult<Option<TimeRangeVec>> {
-    let partition_source_name = &table.schema.partition_time_mapping().src_column_ref().name;
+) -> DataFusionResult<Option<PartitionRangeVec>> {
+    let partition_column = &table.schema.partition_column();
 
-    let result = filters
-        .iter()
-        .try_fold(Some(TimeRangeVec::new_full_open()), |acc, expr| {
-            let current = extract_partition_time_ranges_from_expr(expr, partition_source_name)?;
-            Ok::<_, DataFusionError>(intersect_optional_ranges(acc, current))
-        })?;
+    let result =
+        filters
+            .iter()
+            .try_fold(Some(PartitionRangeVec::new_full_open()), |acc, expr| {
+                let current = extract_partition_ranges_from_expr(expr, partition_column)?;
+                Ok::<_, DataFusionError>(intersect_optional_ranges(acc, current))
+            })?;
 
     Ok(result)
 }
 
-fn extract_partition_time_ranges_from_expr(
+fn extract_partition_ranges_from_expr(
     expr: &Expr,
     partition_source_name: &str,
-) -> DataFusionResult<Option<TimeRangeVec>> {
+) -> DataFusionResult<Option<PartitionRangeVec>> {
     match expr {
         Expr::Between(between) => {
-            let res = extract_between_partition_time_range(between, partition_source_name)
+            let res = extract_between_partition_range(between, partition_source_name)
                 .map(|range| range.convert_to_range_vec());
             Ok(res)
         }
-        Expr::BinaryExpr(binary) => {
-            extract_binary_partition_time_ranges(binary, partition_source_name)
-        }
+        Expr::BinaryExpr(binary) => extract_binary_partition_ranges(binary, partition_source_name),
         // TODO: support more complex condition.
         _ => Ok(None),
     }
 }
 
-fn extract_between_partition_time_range(
+fn extract_between_partition_range(
     between: &datafusion::logical_expr::Between,
     partition_source_name: &str,
-) -> Option<TimeRange> {
-    if !is_expr_partition_time_column(&between.expr, partition_source_name) {
+) -> Option<PartitionRange> {
+    if !is_expr_partition_column(&between.expr, partition_source_name) {
         return None;
     }
 
     if between.negated {
         // TODO: support negation
-        return Some(TimeRange::new_full_open());
+        return Some(PartitionRange::new_full_open());
     }
 
-    let low = expr_as_timestamp_micros(&between.low)?;
-    let high = expr_as_timestamp_micros(&between.high)?;
+    let low = expr_as_partition(&between.low)?;
+    let high = expr_as_partition(&between.high)?;
 
-    Some(TimeRange::new(
-        Some(truncate_microsecond_to_hour(low)),
-        Some(truncate_microsecond_to_hour(high)),
-    ))
+    Some(PartitionRange::new(Some(low), Some(high)))
 }
 
-fn extract_binary_partition_time_ranges(
+fn extract_binary_partition_ranges(
     binary: &datafusion::logical_expr::BinaryExpr,
     partition_source_name: &str,
-) -> DataFusionResult<Option<TimeRangeVec>> {
+) -> DataFusionResult<Option<PartitionRangeVec>> {
     match binary.op {
         Operator::And => {
-            let left =
-                extract_partition_time_ranges_from_expr(&binary.left, partition_source_name)?;
-            let right =
-                extract_partition_time_ranges_from_expr(&binary.right, partition_source_name)?;
+            let left = extract_partition_ranges_from_expr(&binary.left, partition_source_name)?;
+            let right = extract_partition_ranges_from_expr(&binary.right, partition_source_name)?;
             return Ok(intersect_optional_ranges(left, right));
         }
         Operator::Or => {
-            let left =
-                extract_partition_time_ranges_from_expr(&binary.left, partition_source_name)?;
-            let right =
-                extract_partition_time_ranges_from_expr(&binary.right, partition_source_name)?;
+            let left = extract_partition_ranges_from_expr(&binary.left, partition_source_name)?;
+            let right = extract_partition_ranges_from_expr(&binary.right, partition_source_name)?;
             let Some(left) = left else {
                 return Ok(None);
             };
@@ -153,8 +103,8 @@ fn extract_binary_partition_time_ranges(
         _ => {}
     }
 
-    if is_expr_partition_time_column(&binary.left, partition_source_name) {
-        let Some(value) = expr_as_timestamp_micros(&binary.right) else {
+    if is_expr_partition_column(&binary.left, partition_source_name) {
+        let Some(value) = expr_as_partition(&binary.right) else {
             return Err(DataFusionError::Plan(format!(
                 "partition_column must compare with timestamp columns. {:?}",
                 binary
@@ -165,8 +115,8 @@ fn extract_binary_partition_time_ranges(
         return Ok(Some(res));
     }
 
-    if is_expr_partition_time_column(&binary.right, partition_source_name) {
-        let Some(value) = expr_as_timestamp_micros(&binary.left) else {
+    if is_expr_partition_column(&binary.right, partition_source_name) {
+        let Some(value) = expr_as_partition(&binary.left) else {
             return Err(DataFusionError::Plan(format!(
                 "partition_column must compare with timestamp columns. {:?}",
                 binary
@@ -188,27 +138,38 @@ enum ComparisonSide {
 
 fn partition_range_from_comparison(
     op: &Operator,
-    value: i64,
+    partition: Partition,
     side: ComparisonSide,
-) -> DataFusionResult<TimeRangeVec> {
-    let hour = truncate_microsecond_to_hour(value);
+) -> DataFusionResult<PartitionRangeVec> {
     match (side, op) {
         (ComparisonSide::LeftColumn, Operator::Eq)
         | (ComparisonSide::RightColumn, Operator::Eq) => {
-            Ok(TimeRange::new(Some(hour), Some(hour)).convert_to_range_vec())
+            Ok(PartitionRange::new(Some(partition), Some(partition)).convert_to_range_vec())
         }
         (ComparisonSide::LeftColumn, Operator::Gt)
-        | (ComparisonSide::LeftColumn, Operator::GtEq)
-        | (ComparisonSide::RightColumn, Operator::Lt)
-        | (ComparisonSide::RightColumn, Operator::LtEq) => {
-            Ok(TimeRange::new_lower(hour, BoundInclusivity::Inclusive).convert_to_range_vec())
-        }
+        | (ComparisonSide::RightColumn, Operator::Lt) => Ok(PartitionRange::new_lower(
+            partition,
+            BoundInclusivity::Exclusive,
+        )
+        .convert_to_range_vec()),
+        (ComparisonSide::LeftColumn, Operator::GtEq)
+        | (ComparisonSide::RightColumn, Operator::LtEq) => Ok(PartitionRange::new_lower(
+            partition,
+            BoundInclusivity::Inclusive,
+        )
+        .convert_to_range_vec()),
         (ComparisonSide::LeftColumn, Operator::Lt)
-        | (ComparisonSide::LeftColumn, Operator::LtEq)
-        | (ComparisonSide::RightColumn, Operator::Gt)
-        | (ComparisonSide::RightColumn, Operator::GtEq) => {
-            Ok(TimeRange::new_upper(hour, BoundInclusivity::Inclusive).convert_to_range_vec())
-        }
+        | (ComparisonSide::RightColumn, Operator::Gt) => Ok(PartitionRange::new_upper(
+            partition,
+            BoundInclusivity::Exclusive,
+        )
+        .convert_to_range_vec()),
+        (ComparisonSide::LeftColumn, Operator::LtEq)
+        | (ComparisonSide::RightColumn, Operator::GtEq) => Ok(PartitionRange::new_upper(
+            partition,
+            BoundInclusivity::Inclusive,
+        )
+        .convert_to_range_vec()),
         _ => Err(DataFusionError::Plan(format!(
             "partition_column must use between, <, >, or = operator. {:?}",
             op
@@ -216,26 +177,35 @@ fn partition_range_from_comparison(
     }
 }
 
-fn is_expr_partition_time_column(expr: &Expr, column_name: &str) -> bool {
+fn is_expr_partition_column(expr: &Expr, column_name: &str) -> bool {
     match expr {
         Expr::Column(column) => column.name == column_name,
         _ => false,
     }
 }
 
-fn expr_as_timestamp_micros(expr: &Expr) -> Option<i64> {
+fn expr_as_partition(expr: &Expr) -> Option<Partition> {
     match expr {
-        Expr::Literal(value, _) => scalar_value_as_timestamp_micros(value),
+        Expr::Literal(value, _) => scalar_value_as_partition(value),
         _ => None,
     }
 }
 
-fn scalar_value_as_timestamp_micros(value: &ScalarValue) -> Option<i64> {
+fn scalar_value_as_partition(value: &ScalarValue) -> Option<Partition> {
     match value {
-        ScalarValue::TimestampMicrosecond(Some(value), _) => Some(*value),
-        ScalarValue::TimestampMillisecond(Some(value), _) => Some(value * 1_000),
-        ScalarValue::TimestampSecond(Some(value), _) => Some(value * 1_000_000),
-        ScalarValue::TimestampNanosecond(Some(value), _) => Some(value / 1_000),
+        ScalarValue::Int64(Some(value)) => Some(Partition::Int64(*value)),
+        ScalarValue::TimestampMicrosecond(Some(value), _) => {
+            Some(Partition::TimeMicrosecond(*value))
+        }
+        ScalarValue::TimestampMillisecond(Some(value), _) => {
+            Some(Partition::TimeMicrosecond(value * 1_000))
+        }
+        ScalarValue::TimestampSecond(Some(value), _) => {
+            Some(Partition::TimeMicrosecond(value * 1_000_000))
+        }
+        ScalarValue::TimestampNanosecond(Some(value), _) => {
+            Some(Partition::TimeMicrosecond(value / 1_000))
+        }
         _ => None,
     }
 }
@@ -243,8 +213,13 @@ fn scalar_value_as_timestamp_micros(value: &ScalarValue) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::column_data_type::ColumnDataType;
+    use crate::domain::column_data_type::TimeUnit::Microsecond;
+    use crate::domain::file::FileFormat;
+    use crate::domain::partition_filter::PartitionPredicate;
+    use crate::domain::partition_range::PartitionRangeBound;
     use crate::domain::table::Table;
-    use crate::domain::table_schema::TableSchema;
+    use crate::domain::table_schema::{ExternalLocation, PublicColumnDefinition, TableSchema};
     use datafusion::prelude::{col, lit};
     use rstest::rstest;
 
@@ -252,70 +227,87 @@ mod tests {
     const HOUR_MICROS: i64 = 60 * 60 * 1_000_000;
 
     fn table() -> Table {
-        Table::new(TableSchema::new(
-            "hello_table".into(),
-            "my_bucket".into(),
-            "path/prefix".into(),
-            vec![],
-        ))
+        Table::new(
+            TableSchema::try_new(
+                "hello_table".into(),
+                ExternalLocation::new("my_bucket".into(), "path/prefix".into(), None, None),
+                FileFormat::Vortex,
+                vec![
+                    PublicColumnDefinition::new("stream_column", ColumnDataType::Int64, true, None),
+                    PublicColumnDefinition::new(
+                        PARTITION_COLUMN,
+                        ColumnDataType::Timestamp(Microsecond),
+                        true,
+                        None,
+                    ),
+                ],
+                "stream_column".into(),
+                "posted_at".into(),
+                None,
+            )
+            .unwrap(),
+        )
     }
 
     fn timestamp_micros(value: i64) -> Expr {
         lit(ScalarValue::TimestampMicrosecond(Some(value), None))
     }
 
-    fn bound(time: i64, inclusivity: BoundInclusivity) -> PartitionTimeBound {
-        PartitionTimeBound { time, inclusivity }
+    fn bound(time: i64, inclusivity: BoundInclusivity) -> PartitionRangeBound {
+        PartitionRangeBound {
+            partition: Partition::TimeMicrosecond(time),
+            inclusivity,
+        }
     }
 
     fn range(
         lower: Option<(i64, BoundInclusivity)>,
         upper: Option<(i64, BoundInclusivity)>,
-    ) -> PartitionTimePredicate {
-        PartitionTimePredicate::Range(PartitionTimeRange {
+    ) -> PartitionPredicate {
+        PartitionPredicate::Range(PartitionRange {
             lower: lower.map(|(time, inclusivity)| bound(time, inclusivity)),
             upper: upper.map(|(time, inclusivity)| bound(time, inclusivity)),
         })
     }
 
-    fn filter(predicates: Vec<PartitionTimePredicate>) -> PartitionTimeFilter {
-        PartitionTimeFilter { predicates }
+    fn filter(predicates: Vec<PartitionPredicate>) -> PartitionFilter {
+        PartitionFilter { predicates }
     }
 
     #[rstest]
     #[case::eq_uses_in(
-        col(PARTITION_COLUMN).eq(timestamp_micros(HOUR_MICROS + 1)),
-        filter(vec![PartitionTimePredicate::In(vec![HOUR_MICROS])]),
+        col(PARTITION_COLUMN).eq(timestamp_micros(HOUR_MICROS)),
+        filter(vec![PartitionPredicate::In(vec![Partition::TimeMicrosecond(HOUR_MICROS)])]),
     )]
     #[case::gt_uses_inclusive_lower_bound(
-        col(PARTITION_COLUMN).gt(timestamp_micros(HOUR_MICROS + 1)),
-        filter(vec![range(Some((HOUR_MICROS, BoundInclusivity::Inclusive)), None)]),
+        col(PARTITION_COLUMN).gt(timestamp_micros(HOUR_MICROS)),
+        filter(vec![range(Some((HOUR_MICROS, BoundInclusivity::Exclusive)), None)]),
     )]
     #[case::gte_uses_inclusive_lower_bound(
-        col(PARTITION_COLUMN).gt_eq(timestamp_micros(HOUR_MICROS + 1)),
+        col(PARTITION_COLUMN).gt_eq(timestamp_micros(HOUR_MICROS)),
         filter(vec![range(Some((HOUR_MICROS, BoundInclusivity::Inclusive)), None)]),
     )]
     #[case::lt_uses_inclusive_upper_bound(
-        col(PARTITION_COLUMN).lt(timestamp_micros((2 * HOUR_MICROS) + 1)),
-        filter(vec![range(None, Some((2 * HOUR_MICROS, BoundInclusivity::Inclusive)))]),
+        col(PARTITION_COLUMN).lt(timestamp_micros(2 * HOUR_MICROS)),
+        filter(vec![range(None, Some((2 * HOUR_MICROS, BoundInclusivity::Exclusive)))]),
     )]
     #[case::lte_uses_inclusive_upper_bound(
-        col(PARTITION_COLUMN).lt_eq(timestamp_micros((2 * HOUR_MICROS) + 1)),
+        col(PARTITION_COLUMN).lt_eq(timestamp_micros(2 * HOUR_MICROS)),
         filter(vec![range(None, Some((2 * HOUR_MICROS, BoundInclusivity::Inclusive)))]),
     )]
     #[case::between_uses_inclusive_bounds(
         col(PARTITION_COLUMN).between(
-            timestamp_micros(HOUR_MICROS + 1),
-            timestamp_micros((2 * HOUR_MICROS) + 1),
+            timestamp_micros(HOUR_MICROS),
+            timestamp_micros(2 * HOUR_MICROS),
         ),
         filter(vec![range(
             Some((HOUR_MICROS, BoundInclusivity::Inclusive)),
             Some((2 * HOUR_MICROS, BoundInclusivity::Inclusive)),
         )]),
     )]
-    fn extracts_partition_time_filter(#[case] expr: Expr, #[case] expected: PartitionTimeFilter) {
+    fn extracts_partition_filter(#[case] expr: Expr, #[case] expected: PartitionFilter) {
         assert_eq!(
-            extract_partition_times(&table(), &[expr]).expect("filter extraction succeeds"),
+            extract_partition_filter(&table(), &[expr]).expect("filter extraction succeeds"),
             Some(expected)
         );
     }

@@ -3,38 +3,39 @@ use std::sync::Arc;
 
 use crate::application::datafusion::column::INTERNAL_COLUMN_PREFIX;
 use crate::application::datafusion::file_pruning::prune_files_by_statistics;
-use crate::application::datafusion::partition::extract_partition_times;
-use crate::domain::port::catalog::{CatalogFile, CatalogPort};
+use crate::application::datafusion::partition::extract_partition_filter;
+use crate::application::datafusion::stream::extract_stream;
+use crate::domain::file::File;
+use crate::domain::port::catalog::CatalogPort;
 use crate::domain::table::Table;
 use arrow::datatypes::{Field, Schema, SchemaRef};
 use async_trait::async_trait;
 use datafusion::catalog::Session;
 use datafusion::common::project_schema;
-use datafusion::datasource::TableProvider;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
+use datafusion::datasource::TableProvider;
 use datafusion::error::DataFusionError;
 use datafusion::error::Result as DataFusionResult;
 use datafusion::logical_expr::{Expr, TableProviderFilterPushDown, TableType};
-use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::empty::EmptyExec;
+use datafusion::physical_plan::ExecutionPlan;
 use tracing::debug;
-use vortex::VortexSessionDefault;
 use vortex::session::VortexSession;
+use vortex::VortexSessionDefault;
 use vortex_datafusion::VortexFormat;
 
-const DEFAULT_STREAM_ID: i64 = 0;
 const GET_FILE_INFO_BATCH_SIZE: usize = 100;
 
 #[derive(Debug)]
-pub struct DummyTableProvider<C: CatalogPort> {
+pub struct MangrobeTableProvider<C: CatalogPort> {
     table: Table,
     catalog_port: Arc<C>,
     schema: SchemaRef,
 }
 
-impl<C: CatalogPort> DummyTableProvider<C> {
+impl<C: CatalogPort> MangrobeTableProvider<C> {
     pub fn try_new(table: Table, catalog_port: Arc<C>) -> DataFusionResult<Self> {
         let schema = Arc::new(build_public_schema(&table)?);
         Ok(Self {
@@ -46,7 +47,7 @@ impl<C: CatalogPort> DummyTableProvider<C> {
 }
 
 #[async_trait]
-impl<C: CatalogPort + 'static> TableProvider for DummyTableProvider<C> {
+impl<C: CatalogPort + 'static> TableProvider for MangrobeTableProvider<C> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -66,17 +67,14 @@ impl<C: CatalogPort + 'static> TableProvider for DummyTableProvider<C> {
         filters: &[Expr],
         limit: Option<usize>,
     ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
-        let Some(partition_time_filter) = extract_partition_times(&self.table, filters)? else {
+        let Some(partition_filter) = extract_partition_filter(&self.table, filters)? else {
             return self.build_empty_plan(projection);
         };
+        let stream = extract_stream(&self.table, filters)?;
 
         let files = self
             .catalog_port
-            .get_current_state(
-                &self.table.schema.table_name,
-                DEFAULT_STREAM_ID,
-                &partition_time_filter,
-            )
+            .get_current_state(&self.table.schema.table_name, stream, &partition_filter)
             .await
             .map_err(|error| DataFusionError::External(Box::new(error)))?;
 
@@ -111,7 +109,7 @@ impl<C: CatalogPort + 'static> TableProvider for DummyTableProvider<C> {
     }
 }
 
-impl<C: CatalogPort + 'static> DummyTableProvider<C> {
+impl<C: CatalogPort + 'static> MangrobeTableProvider<C> {
     fn build_empty_plan(
         &self,
         projection: Option<&Vec<usize>>,
@@ -122,9 +120,9 @@ impl<C: CatalogPort + 'static> DummyTableProvider<C> {
 
     async fn prune_files(
         &self,
-        candidate_files: &[CatalogFile],
+        candidate_files: &[File],
         filters: &[Expr],
-    ) -> DataFusionResult<Vec<CatalogFile>> {
+    ) -> DataFusionResult<Vec<File>> {
         let mut pruned_files = Vec::new();
         for files in candidate_files.chunks(GET_FILE_INFO_BATCH_SIZE) {
             pruned_files.extend(
@@ -143,7 +141,7 @@ impl<C: CatalogPort + 'static> DummyTableProvider<C> {
     }
 }
 
-fn resolve_catalog_paths(table: &Table, files: &[CatalogFile]) -> Vec<String> {
+fn resolve_catalog_paths(table: &Table, files: &[File]) -> Vec<String> {
     files
         .iter()
         .map(|file| table.build_full_path(file))
@@ -160,7 +158,7 @@ fn build_public_schema(table: &Table) -> DataFusionResult<Schema> {
             )));
         }
 
-        fields.push(Field::new(&column.name, column.data_type().clone(), true));
+        fields.push(Field::new(&column.name, column.arrow_data_type(), true));
     }
 
     Ok(Schema::new(fields))

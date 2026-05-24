@@ -1,5 +1,5 @@
-mod external_table_definition;
 pub mod service;
+mod table_schema;
 
 use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatch;

@@ -1,26 +1,26 @@
-use crate::domain::port::catalog::BoundInclusivity;
+use crate::domain::partition::Partition;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ExpandedPartitionTimes {
-    Ranges(Vec<TimeRange>),
-    OpenStart { end: TimeRangeBound },
-    OpenEnd { start: TimeRangeBound },
+pub enum ExpandedPartition {
+    Ranges(Vec<PartitionRange>),
+    OpenStart { upper: PartitionRangeBound },
+    OpenEnd { lower: PartitionRangeBound },
     FullyOpen,
 }
 
 #[derive(Debug, Clone)]
-pub struct TimeRangeVec {
-    ranges: Vec<TimeRange>,
+pub struct PartitionRangeVec {
+    ranges: Vec<PartitionRange>,
 }
 
-impl TimeRangeVec {
-    pub fn new_from_ranges(ranges: Vec<TimeRange>) -> Self {
+impl PartitionRangeVec {
+    pub fn new_from_ranges(ranges: Vec<PartitionRange>) -> Self {
         Self { ranges }
     }
 
     pub fn new_full_open() -> Self {
         Self {
-            ranges: vec![TimeRange::new_full_open()],
+            ranges: vec![PartitionRange::new_full_open()],
         }
     }
 
@@ -28,41 +28,39 @@ impl TimeRangeVec {
         self.ranges.is_empty()
     }
 
-    pub fn to_expanded_partition_times(&self) -> ExpandedPartitionTimes {
+    pub fn to_expanded_partitions(&self) -> ExpandedPartition {
         if self.ranges.len() == 1 {
             let range = self.ranges[0].clone();
-            match (range.start, range.end) {
-                (None, Some(end)) => {
-                    return ExpandedPartitionTimes::OpenStart { end };
-                }
-                (Some(start), None) => {
-                    return ExpandedPartitionTimes::OpenEnd { start };
-                }
-                (None, None) => {
-                    return ExpandedPartitionTimes::FullyOpen;
-                }
-                (Some(_), Some(_)) => return ExpandedPartitionTimes::Ranges(vec![range]),
-            }
+            return match (&range.lower, &range.upper) {
+                (None, Some(upper)) => ExpandedPartition::OpenStart {
+                    upper: upper.clone(),
+                },
+                (Some(lower), None) => ExpandedPartition::OpenEnd {
+                    lower: lower.clone(),
+                },
+                (None, None) => ExpandedPartition::FullyOpen,
+                (Some(_), Some(_)) => ExpandedPartition::Ranges(vec![range.clone()]),
+            };
         }
 
         if self
             .ranges
             .iter()
-            .any(|range| range.start.is_none() || range.end.is_none())
+            .any(|range| range.lower.is_none() || range.upper.is_none())
         {
-            return ExpandedPartitionTimes::FullyOpen;
+            return ExpandedPartition::FullyOpen;
         }
 
-        ExpandedPartitionTimes::Ranges(self.ranges.clone())
+        ExpandedPartition::Ranges(self.ranges.clone())
     }
 
-    pub fn union(&self, right: TimeRangeVec) -> TimeRangeVec {
+    pub fn union(&self, right: PartitionRangeVec) -> PartitionRangeVec {
         let mut ranges = self.ranges.clone();
         ranges.extend(right.ranges);
         merge_ranges(ranges)
     }
 
-    fn intersect(&self, right: TimeRangeVec) -> TimeRangeVec {
+    fn intersect(&self, right: PartitionRangeVec) -> PartitionRangeVec {
         let mut intersections = Vec::new();
 
         for left_range in &self.ranges {
@@ -78,34 +76,34 @@ impl TimeRangeVec {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TimeRange {
-    pub start: Option<TimeRangeBound>,
-    pub end: Option<TimeRangeBound>,
+pub struct PartitionRange {
+    pub lower: Option<PartitionRangeBound>,
+    pub upper: Option<PartitionRangeBound>,
 }
 
-impl TimeRange {
-    pub fn new(start_hour_micros: Option<i64>, end_hour_micros: Option<i64>) -> Self {
+impl PartitionRange {
+    pub fn new(lower: Option<Partition>, upper: Option<Partition>) -> Self {
         Self {
-            start: start_hour_micros.map(TimeRangeBound::new_inclusive),
-            end: end_hour_micros.map(TimeRangeBound::new_inclusive),
+            lower: lower.map(PartitionRangeBound::new_inclusive),
+            upper: upper.map(PartitionRangeBound::new_inclusive),
         }
     }
 
-    pub fn new_lower(hour_micros: i64, inclusivity: BoundInclusivity) -> Self {
+    pub fn new_lower(partition: Partition, inclusivity: BoundInclusivity) -> Self {
         Self {
-            start: Some(TimeRangeBound {
-                hour_micros,
+            lower: Some(PartitionRangeBound {
+                partition,
                 inclusivity,
             }),
-            end: None,
+            upper: None,
         }
     }
 
-    pub fn new_upper(hour_micros: i64, inclusivity: BoundInclusivity) -> Self {
+    pub fn new_upper(partition: Partition, inclusivity: BoundInclusivity) -> Self {
         Self {
-            start: None,
-            end: Some(TimeRangeBound {
-                hour_micros,
+            lower: None,
+            upper: Some(PartitionRangeBound {
+                partition,
                 inclusivity,
             }),
         }
@@ -113,26 +111,26 @@ impl TimeRange {
 
     pub fn new_full_open() -> Self {
         Self {
-            start: None,
-            end: None,
+            lower: None,
+            upper: None,
         }
     }
 
-    pub fn convert_to_range_vec(self) -> TimeRangeVec {
-        TimeRangeVec::new_from_ranges(vec![self])
+    pub fn convert_to_range_vec(self) -> PartitionRangeVec {
+        PartitionRangeVec::new_from_ranges(vec![self])
     }
 
     fn is_valid(&self) -> bool {
-        match (self.start, self.end) {
-            (Some(start), Some(end)) => start.hour_micros <= end.hour_micros,
+        match (&self.lower, &self.upper) {
+            (Some(lower), Some(upper)) => lower.partition <= upper.partition,
             _ => true,
         }
     }
 
     fn intersect(&self, other: &Self) -> Option<Self> {
         let range = Self {
-            start: self.max_start(other),
-            end: self.min_end(other),
+            lower: self.max_lower(other),
+            upper: self.min_upper(other),
         };
 
         range.is_valid().then_some(range)
@@ -140,31 +138,31 @@ impl TimeRange {
 
     fn union(&self, other: &Self) -> Self {
         Self {
-            start: self.min_start(other),
-            end: self.max_end(other),
+            lower: self.min_lower(other),
+            upper: self.max_upper(other),
         }
     }
 
     fn overlaps_or_touches(&self, other: &Self) -> bool {
-        match (other.start, self.end) {
-            (Some(right_start), Some(left_end))
-                if right_start.hour_micros < left_end.hour_micros =>
+        match (&other.lower, &self.upper) {
+            (Some(right_lower), Some(left_upper))
+                if right_lower.partition < left_upper.partition =>
             {
                 true
             }
-            (Some(right_start), Some(left_end))
-                if right_start.hour_micros == left_end.hour_micros =>
+            (Some(right_lower), Some(left_upper))
+                if right_lower.partition == left_upper.partition =>
             {
-                right_start.inclusivity == BoundInclusivity::Inclusive
-                    && left_end.inclusivity == BoundInclusivity::Inclusive
+                right_lower.inclusivity == BoundInclusivity::Inclusive
+                    && left_upper.inclusivity == BoundInclusivity::Inclusive
             }
             (Some(_), Some(_)) => false,
             _ => true,
         }
     }
 
-    fn min_start(&self, other: &Self) -> Option<TimeRangeBound> {
-        match (self.start, other.start) {
+    fn min_lower(&self, other: &Self) -> Option<PartitionRangeBound> {
+        match (&self.lower, &other.lower) {
             (Some(left), Some(right)) => Some(min_bound(
                 left,
                 right,
@@ -174,34 +172,34 @@ impl TimeRange {
         }
     }
 
-    fn max_start(&self, other: &Self) -> Option<TimeRangeBound> {
-        match (self.start, other.start) {
+    fn max_lower(&self, other: &Self) -> Option<PartitionRangeBound> {
+        match (&self.lower, &other.lower) {
             (Some(left), Some(right)) => Some(max_bound(
                 left,
                 right,
                 InclusivityPreference::PreferExclusive,
             )),
-            (Some(left), None) => Some(left),
-            (None, Some(right)) => Some(right),
+            (Some(left), None) => Some(left.clone()),
+            (None, Some(right)) => Some(right.clone()),
             (None, None) => None,
         }
     }
 
-    fn min_end(&self, other: &Self) -> Option<TimeRangeBound> {
-        match (self.end, other.end) {
+    fn min_upper(&self, other: &Self) -> Option<PartitionRangeBound> {
+        match (&self.upper, &other.upper) {
             (Some(left), Some(right)) => Some(min_bound(
                 left,
                 right,
                 InclusivityPreference::PreferExclusive,
             )),
-            (Some(left), None) => Some(left),
-            (None, Some(right)) => Some(right),
+            (Some(left), None) => Some(left.clone()),
+            (None, Some(right)) => Some(right.clone()),
             (None, None) => None,
         }
     }
 
-    fn max_end(&self, other: &Self) -> Option<TimeRangeBound> {
-        match (self.end, other.end) {
+    fn max_upper(&self, other: &Self) -> Option<PartitionRangeBound> {
+        match (&self.upper, &other.upper) {
             (Some(left), Some(right)) => Some(max_bound(
                 left,
                 right,
@@ -212,10 +210,16 @@ impl TimeRange {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TimeRangeBound {
-    pub hour_micros: i64,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartitionRangeBound {
+    pub partition: Partition,
     pub inclusivity: BoundInclusivity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundInclusivity {
+    Inclusive,
+    Exclusive,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -224,40 +228,40 @@ enum InclusivityPreference {
     PreferExclusive,
 }
 
-impl TimeRangeBound {
-    fn new_inclusive(hour_micros: i64) -> Self {
+impl PartitionRangeBound {
+    fn new_inclusive(partition: Partition) -> Self {
         Self {
-            hour_micros,
+            partition,
             inclusivity: BoundInclusivity::Inclusive,
         }
     }
 }
 
 fn min_bound(
-    left: TimeRangeBound,
-    right: TimeRangeBound,
+    left: &PartitionRangeBound,
+    right: &PartitionRangeBound,
     preference: InclusivityPreference,
-) -> TimeRangeBound {
-    match left.hour_micros.cmp(&right.hour_micros) {
-        std::cmp::Ordering::Less => left,
-        std::cmp::Ordering::Greater => right,
-        std::cmp::Ordering::Equal => TimeRangeBound {
-            hour_micros: left.hour_micros,
+) -> PartitionRangeBound {
+    match left.partition.cmp(&right.partition) {
+        std::cmp::Ordering::Less => left.clone(),
+        std::cmp::Ordering::Greater => right.clone(),
+        std::cmp::Ordering::Equal => PartitionRangeBound {
+            partition: left.partition,
             inclusivity: prefer_inclusivity(left.inclusivity, right.inclusivity, preference),
         },
     }
 }
 
 fn max_bound(
-    left: TimeRangeBound,
-    right: TimeRangeBound,
+    left: &PartitionRangeBound,
+    right: &PartitionRangeBound,
     preference: InclusivityPreference,
-) -> TimeRangeBound {
-    match left.hour_micros.cmp(&right.hour_micros) {
-        std::cmp::Ordering::Less => right,
-        std::cmp::Ordering::Greater => left,
-        std::cmp::Ordering::Equal => TimeRangeBound {
-            hour_micros: left.hour_micros,
+) -> PartitionRangeBound {
+    match left.partition.cmp(&right.partition) {
+        std::cmp::Ordering::Less => right.clone(),
+        std::cmp::Ordering::Greater => left.clone(),
+        std::cmp::Ordering::Equal => PartitionRangeBound {
+            partition: left.partition,
             inclusivity: prefer_inclusivity(left.inclusivity, right.inclusivity, preference),
         },
     }
@@ -287,9 +291,9 @@ fn prefer_inclusivity(
 }
 
 pub fn intersect_optional_ranges(
-    left: Option<TimeRangeVec>,
-    right: Option<TimeRangeVec>,
-) -> Option<TimeRangeVec> {
+    left: Option<PartitionRangeVec>,
+    right: Option<PartitionRangeVec>,
+) -> Option<PartitionRangeVec> {
     match (left, right) {
         (Some(left), Some(right)) => Some(left.intersect(right)),
         (Some(left), None) => Some(left),
@@ -298,19 +302,19 @@ pub fn intersect_optional_ranges(
     }
 }
 
-fn merge_ranges(mut ranges: Vec<TimeRange>) -> TimeRangeVec {
+fn merge_ranges(mut ranges: Vec<PartitionRange>) -> PartitionRangeVec {
     if ranges.is_empty() {
-        return TimeRangeVec::new_from_ranges(ranges);
+        return PartitionRangeVec::new_from_ranges(ranges);
     }
 
     ranges.sort_by_key(|range| {
         (
-            range.start.map(|bound| bound.hour_micros),
-            range.end.map(|bound| bound.hour_micros),
+            range.lower.clone().map(|bound| bound.partition),
+            range.upper.clone().map(|bound| bound.partition),
         )
     });
 
-    let mut merged: Vec<TimeRange> = Vec::with_capacity(ranges.len());
+    let mut merged: Vec<PartitionRange> = Vec::with_capacity(ranges.len());
     for range in ranges {
         match merged.last_mut() {
             Some(last) if last.overlaps_or_touches(&range) => {
@@ -320,7 +324,7 @@ fn merge_ranges(mut ranges: Vec<TimeRange>) -> TimeRangeVec {
         }
     }
 
-    TimeRangeVec::new_from_ranges(merged)
+    PartitionRangeVec::new_from_ranges(merged)
 }
 
 #[cfg(test)]
@@ -328,20 +332,20 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
-    fn bound(hour_micros: i64, inclusivity: BoundInclusivity) -> TimeRangeBound {
-        TimeRangeBound {
-            hour_micros,
+    fn bound(partition: Partition, inclusivity: BoundInclusivity) -> PartitionRangeBound {
+        PartitionRangeBound {
+            partition,
             inclusivity,
         }
     }
 
     fn range(
-        start: Option<(i64, BoundInclusivity)>,
-        end: Option<(i64, BoundInclusivity)>,
-    ) -> TimeRange {
-        TimeRange {
-            start: start.map(|(hour_micros, inclusivity)| bound(hour_micros, inclusivity)),
-            end: end.map(|(hour_micros, inclusivity)| bound(hour_micros, inclusivity)),
+        lower: Option<(i64, BoundInclusivity)>,
+        upper: Option<(i64, BoundInclusivity)>,
+    ) -> PartitionRange {
+        PartitionRange {
+            lower: lower.map(|(num, inclusivity)| bound(Partition::Int64(num), inclusivity)),
+            upper: upper.map(|(num, inclusivity)| bound(Partition::Int64(num), inclusivity)),
         }
     }
 
@@ -362,9 +366,9 @@ mod tests {
         Some(range(Some((15, BoundInclusivity::Inclusive)), Some((20, BoundInclusivity::Inclusive)))),
     )]
     fn intersects_ranges(
-        #[case] left: TimeRange,
-        #[case] right: TimeRange,
-        #[case] expected: Option<TimeRange>,
+        #[case] left: PartitionRange,
+        #[case] right: PartitionRange,
+        #[case] expected: Option<PartitionRange>,
     ) {
         assert_eq!(left.intersect(&right), expected);
     }
@@ -386,9 +390,9 @@ mod tests {
         range(Some((10, BoundInclusivity::Inclusive)), Some((25, BoundInclusivity::Inclusive))),
     )]
     fn unions_ranges(
-        #[case] left: TimeRange,
-        #[case] right: TimeRange,
-        #[case] expected: TimeRange,
+        #[case] left: PartitionRange,
+        #[case] right: PartitionRange,
+        #[case] expected: PartitionRange,
     ) {
         assert_eq!(left.union(&right), expected);
     }
@@ -415,8 +419,8 @@ mod tests {
         false,
     )]
     fn checks_overlaps_or_touches(
-        #[case] left: TimeRange,
-        #[case] right: TimeRange,
+        #[case] left: PartitionRange,
+        #[case] right: PartitionRange,
         #[case] expected: bool,
     ) {
         assert_eq!(left.overlaps_or_touches(&right), expected);
@@ -424,39 +428,39 @@ mod tests {
 
     #[rstest]
     #[case::single_closed_range(
-        TimeRangeVec::new_from_ranges(vec![range(
+        PartitionRangeVec::new_from_ranges(vec![range(
             Some((10, BoundInclusivity::Inclusive)),
             Some((20, BoundInclusivity::Inclusive)),
         )]),
-        ExpandedPartitionTimes::Ranges(vec![range(
+        ExpandedPartition::Ranges(vec![range(
             Some((10, BoundInclusivity::Inclusive)),
             Some((20, BoundInclusivity::Inclusive)),
         )]),
     )]
     #[case::open_start(
-        TimeRangeVec::new_from_ranges(vec![range(
+        PartitionRangeVec::new_from_ranges(vec![range(
             None,
             Some((20, BoundInclusivity::Exclusive)),
         )]),
-        ExpandedPartitionTimes::OpenStart {
-            end: bound(20, BoundInclusivity::Exclusive),
+        ExpandedPartition::OpenStart {
+            upper: bound(Partition::Int64(20), BoundInclusivity::Exclusive),
         },
     )]
     #[case::open_end(
-        TimeRangeVec::new_from_ranges(vec![range(
+        PartitionRangeVec::new_from_ranges(vec![range(
             Some((10, BoundInclusivity::Exclusive)),
             None,
         )]),
-        ExpandedPartitionTimes::OpenEnd {
-            start: bound(10, BoundInclusivity::Exclusive),
+        ExpandedPartition::OpenEnd {
+            lower: bound(Partition::Int64(10), BoundInclusivity::Exclusive),
         },
     )]
     #[case::full_open(
-        TimeRangeVec::new_from_ranges(vec![range(None, None)]),
-        ExpandedPartitionTimes::FullyOpen,
+        PartitionRangeVec::new_from_ranges(vec![range(None, None)]),
+        ExpandedPartition::FullyOpen,
     )]
     #[case::multiple_closed_ranges(
-        TimeRangeVec::new_from_ranges(vec![
+        PartitionRangeVec::new_from_ranges(vec![
             range(
                 Some((10, BoundInclusivity::Inclusive)),
                 Some((20, BoundInclusivity::Inclusive)),
@@ -466,7 +470,7 @@ mod tests {
                 Some((40, BoundInclusivity::Exclusive)),
             ),
         ]),
-        ExpandedPartitionTimes::Ranges(vec![
+        ExpandedPartition::Ranges(vec![
             range(
                 Some((10, BoundInclusivity::Inclusive)),
                 Some((20, BoundInclusivity::Inclusive)),
@@ -477,10 +481,7 @@ mod tests {
             ),
         ]),
     )]
-    fn expands_partition_times(
-        #[case] ranges: TimeRangeVec,
-        #[case] expected: ExpandedPartitionTimes,
-    ) {
-        assert_eq!(ranges.to_expanded_partition_times(), expected);
+    fn expands_partitions(#[case] ranges: PartitionRangeVec, #[case] expected: ExpandedPartition) {
+        assert_eq!(ranges.to_expanded_partitions(), expected);
     }
 }

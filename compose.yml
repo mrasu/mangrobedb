@@ -11,6 +11,15 @@ services:
       - RUSTFS_LOG_LEVEL=info
     volumes:
       - rustfs_data:/data
+  rustfs-init:
+    image: minio/mc
+    depends_on:
+      - rustfs
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set rustfs http://rustfs:9000 rustfsadmin rustfsadmin; do sleep 1; done;
+      mc mb --ignore-existing rustfs/mangrobedb-development
+      "
   postgres:
     image: postgres:18
     ports:

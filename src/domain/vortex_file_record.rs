@@ -1,8 +1,7 @@
 use crate::domain::flush_unit::FlushUnit;
+use crate::domain::partition::Partition;
 use crate::domain::statistics::FileStatistics;
-use anyhow::anyhow;
 use arrow::array::RecordBatch;
-use chrono::{DateTime, Utc};
 
 #[derive(Debug)]
 pub struct VortexFileRecord {
@@ -21,13 +20,11 @@ impl VortexFileRecord {
     }
 
     pub fn path(&self) -> Result<String, anyhow::Error> {
-        let partition_time = DateTime::<Utc>::from_timestamp_micros(self.flush_unit.partition_time)
-            .ok_or_else(|| anyhow!("invalid partition time: {}", self.flush_unit.partition_time))?
-            .format("%Y%m%d_%H%M%S");
-
         Ok(format!(
-            "stream_id={}/partition_time={}/{}",
-            self.flush_unit.stream_id, partition_time, self.name
+            "stream={}/partition={}/{}",
+            self.flush_unit.stream,
+            self.flush_unit.partition.path_value(),
+            self.name
         ))
     }
 
@@ -35,8 +32,8 @@ impl VortexFileRecord {
         FileStatistics::calculate(&self.batch_record)
     }
 
-    pub fn partition_time_micros(&self) -> i64 {
-        self.flush_unit.partition_time
+    pub fn partition(&self) -> Partition {
+        self.flush_unit.partition
     }
 
     pub fn batch_record(&self) -> &RecordBatch {

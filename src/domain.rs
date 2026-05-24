@@ -1,10 +1,13 @@
+pub mod column_data_type;
 pub mod common_ports;
+pub mod file;
 pub mod flush_unit;
 pub mod flush_unit_record;
+pub mod partition;
+pub mod partition_filter;
+pub mod partition_range;
 pub mod port;
 pub mod statistics;
 pub mod table;
-pub mod table_mapping;
 pub mod table_schema;
-pub mod time_range;
 pub mod vortex_file_record;

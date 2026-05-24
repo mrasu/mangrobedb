@@ -1,37 +1,39 @@
+use crate::domain::column_data_type::{ColumnDataType, TimeUnit};
+use crate::domain::file::{
+    File, FileColumnStatisticsType, FileFormat, FileInfo, FileMetadata, FileMetadataType,
+};
+use crate::domain::partition::Partition;
+use crate::domain::partition_filter::{PartitionFilter, PartitionPredicate};
+use crate::domain::partition_range::{BoundInclusivity, PartitionRangeBound};
 use crate::domain::port::catalog::{
-    AddFilesEntry, BoundInclusivity, CatalogError, CatalogFile, CatalogFileInfo, CatalogPort,
-    ColumnDataType as CatalogColumnDataType,
-    CreateExternalTableRequest as CatalogCreateExternalTableRequest,
-    ExternalLocation as CatalogExternalLocation,
-    ExternalTableDefinition as CatalogExternalTableDefinition, FileColumnStatisticsType,
-    FileFormat as CatalogFileFormat, FileMetadataType, PartitionField as CatalogPartitionField,
-    PartitionTimeBound, PartitionTimeFilter, PartitionTimePredicate,
-    PartitionTransform as CatalogPartitionTransform, TableColumn as CatalogTableColumn,
-    TableSummary as CatalogTableSummary, TimeUnit as CatalogTimeUnit,
+    AddFilesEntry, CatalogError, CatalogPort, CreateTableRequest as CatalogCreateTableRequest,
+    TableSummary as CatalogTableSummary,
 };
 use crate::domain::statistics::{ColumnStatistics, StatisticValue};
-use crate::domain::table_schema::TableSchema;
-use anyhow::{Context, anyhow};
+use crate::domain::table_schema::{ExternalLocation, PublicColumnDefinition, TableSchema};
+use anyhow::{anyhow, Context};
 use async_trait::async_trait;
-use mangrobe_api_server::Mangrobe;
+use mangrobe_api_server::proto::statistics_value::Value;
 use mangrobe_api_server::proto::{
-    AddFileEntry as MangrobeAddFileEntry, AddFileInfoEntry as MangrobeAddFileInfoEntry,
-    AddFilesRequest, BoundInclusivity as MangrobeBoundInclusivity, Column as MangrobeColumn,
-    ColumnStatisticsEntry as MangrobeColumnStatisticsEntry,
-    CreateExternalTableRequest as MangrobeCreateExternalTableRequest, DataType as MangrobeDataType,
-    EvolveTableSchemaRequest, ExternalLocation as MangrobeExternalLocation,
-    FileColumnStatisticsType as MangrobeFileColumnStatisticsType, FileFormat as MangrobeFileFormat,
-    FileMetadataEntry as MangrobeFileMetadataEntry, FileMetadataType as MangrobeFileMetadataType,
-    GetCurrentStateRequest, GetFileInfoRequest, GetTableRequest as MangrobeGetTableRequest,
-    IdempotencyKey, ListTablesRequest as MangrobeListTablesRequest,
-    PartitionField as MangrobePartitionField, PartitionTimeBound as MangrobePartitionTimeBound,
-    PartitionTimeFilter as MangrobePartitionTimeFilter, PartitionTimeIn,
-    PartitionTimePredicate as MangrobePartitionTimePredicate, PartitionTimeRange,
-    PartitionTransform as MangrobePartitionTransform, ScalarType as MangrobeScalarType,
-    StorageScheme as MangrobeStorageScheme, TableDefinition as MangrobeTableDefinition,
-    TableIdentifier, TimeType as MangrobeTimeType, TimeUnit as MangrobeTimeUnit, data_type,
-    partition_time_predicate,
+    data_type, partition_predicate,
+    partition_value, AddFileEntry as MangrobeAddFileEntry, AddFileInfoEntry as MangrobeAddFileInfoEntry,
+    AddFilesRequest,
+    BoundInclusivity as MangrobeBoundInclusivity, Column as MangrobeColumn,
+    ColumnStatisticsEntry as MangrobeColumnStatisticsEntry, CreateTableRequest as MangrobeCreateTableRequest,
+    DataType as MangrobeDataType, EvolveTableSchemaRequest,
+    ExternalLocation as MangrobeExternalLocation, FileColumnStatisticsType as MangrobeFileColumnStatisticsType,
+    FileFormat as MangrobeFileFormat, FileMetadataEntry as MangrobeFileMetadataEntry, FileMetadataType as MangrobeFileMetadataType,
+    GetCurrentStateRequest, GetFileInfoRequest,
+    GetTableRequest as MangrobeGetTableRequest, IdempotencyKey,
+    ListTablesRequest as MangrobeListTablesRequest, PartitionBound as MangrobePartitionBound,
+    PartitionDataType as MangrobePartitionDataType, PartitionField as MangrobePartitionField, PartitionFilter as MangrobePartitionFilter,
+    PartitionIn, PartitionPredicate as MangrobePartitionPredicate,
+    PartitionRange, PartitionTransform as MangrobePartitionTransform, PartitionValue,
+    ScalarType as MangrobeScalarType, StatisticsValue,
+    StorageScheme as MangrobeStorageScheme, StreamDataType as MangrobeStreamDataType, StreamField as MangrobeStreamField,
+    TableDefinition as MangrobeTableDefinition, TableIdentifier, TimeUnit as MangrobeTimeUnit, TimestampType as MangrobeTimestampType,
 };
+use mangrobe_api_server::Mangrobe;
 use prost_types::Timestamp;
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
@@ -61,37 +63,21 @@ impl fmt::Debug for MangrobeCatalog {
 
 #[async_trait]
 impl CatalogPort for MangrobeCatalog {
-    #[allow(
-        clippy::needless_update,
-        reason = "Keep the default update so this remains valid when the type is extended."
-    )]
-    async fn create_external_table(
-        &self,
-        request: CatalogCreateExternalTableRequest,
-    ) -> Result<(), CatalogError> {
-        let param = MangrobeCreateExternalTableRequest {
+    async fn create_table(&self, request: CatalogCreateTableRequest) -> Result<(), CatalogError> {
+        let param = MangrobeCreateTableRequest {
             table: Some(to_mangrobe_table_definition(request.table)),
             skip_if_exists: request.skip_if_exists,
-            ..Default::default()
         };
 
-        self.mangrobe
-            .data_definition()
-            .create_external_table(param)
-            .await?;
+        self.mangrobe.data_definition().create_table(param).await?;
 
         Ok(())
     }
 
-    #[allow(
-        clippy::needless_update,
-        reason = "Keep the default update so this remains valid when the type is extended."
-    )]
     async fn list_tables(&self) -> Result<Vec<CatalogTableSummary>, CatalogError> {
         let param = MangrobeListTablesRequest {
             catalog_name: Some(MANGROBEDB_CATALOG_NAME.into()),
             schema_name: Some(MANGROBEDB_SCHEMA_NAME.into()),
-            ..Default::default()
         };
         let response = self.mangrobe.data_definition().list_tables(param).await?;
 
@@ -111,17 +97,9 @@ impl CatalogPort for MangrobeCatalog {
             .map_err(CatalogError::from)
     }
 
-    #[allow(
-        clippy::needless_update,
-        reason = "Keep the default update so this remains valid when the type is extended."
-    )]
-    async fn get_table(
-        &self,
-        table_name: &str,
-    ) -> Result<CatalogExternalTableDefinition, CatalogError> {
+    async fn get_table(&self, table_name: &str) -> Result<TableSchema, CatalogError> {
         let param = MangrobeGetTableRequest {
             identifier: Some(to_mangrobe_table_identifier(table_name)),
-            ..Default::default()
         };
         let response = self.mangrobe.data_definition().get_table(param).await?;
         let table = response
@@ -131,41 +109,29 @@ impl CatalogPort for MangrobeCatalog {
         from_mangrobe_table_definition(table).map_err(CatalogError::from)
     }
 
-    #[allow(
-        clippy::needless_update,
-        reason = "Keep the default update so this remains valid when the type is extended."
-    )]
     async fn get_table_schema(&self, table_name: &str) -> Result<TableSchema, CatalogError> {
         let param = MangrobeGetTableRequest {
             identifier: Some(to_mangrobe_table_identifier(table_name)),
-            ..Default::default()
         };
         let response = self.mangrobe.data_definition().get_table(param).await?;
         let table = response
             .table
             .context("Mangrobe API returned get_table response without table")?;
 
-        let table_schema = from_mangrobe_table_definition(table)
-            .map_err(CatalogError::from)?
-            .table_scheme();
+        let table_schema = from_mangrobe_table_definition(table).map_err(CatalogError::from)?;
         Ok(table_schema)
     }
 
-    #[allow(
-        clippy::needless_update,
-        reason = "Keep the default update so this remains valid when the type is extended."
-    )]
     async fn get_current_state(
         &self,
         table_name: &str,
-        stream_id: i64,
-        partition_time_filter: &PartitionTimeFilter,
-    ) -> Result<Vec<CatalogFile>, CatalogError> {
+        stream: i64,
+        partition_filter: &PartitionFilter,
+    ) -> Result<Vec<File>, CatalogError> {
         let param = GetCurrentStateRequest {
             table_identifier: Some(to_mangrobe_table_identifier(table_name)),
-            stream_id,
-            partition_time_filter: Some(to_mangrobe_partition_time_filter(partition_time_filter)),
-            ..Default::default()
+            stream,
+            partition_filter: Some(to_mangrobe_partition_filter(partition_filter)),
         };
         let response = self
             .mangrobe
@@ -174,17 +140,17 @@ impl CatalogPort for MangrobeCatalog {
             .await?;
 
         let mut files = Vec::new();
-        for partition in response.partitions {
-            let partition_time = micros_from_timestamp(
-                partition
-                    .partition_time
+        for current_partition in response.partitions {
+            let partition = from_mangrobe_partition_value(
+                current_partition
+                    .partition
                     .as_ref()
-                    .context("Mangrobe API returned partition without partition_time")?,
-            );
-            for file in partition.files {
-                files.push(CatalogFile {
+                    .context("Mangrobe API returned partition without partition")?,
+            )?;
+            for file in current_partition.files {
+                files.push(File {
                     file_id: file.file_id,
-                    partition_time,
+                    partition,
                     path: file.path,
                     size: u64::try_from(file.size)
                         .context("Mangrobe API returned negative file size")?,
@@ -201,7 +167,7 @@ impl CatalogPort for MangrobeCatalog {
         file_ids: &[String],
         included_column_statistics_types: &[FileColumnStatisticsType],
         included_file_metadata_types: &[FileMetadataType],
-    ) -> Result<HashMap<String, CatalogFileInfo>, CatalogError> {
+    ) -> Result<HashMap<String, FileInfo>, CatalogError> {
         #[allow(
             clippy::needless_update,
             reason = "Keep the default update so this remains valid when the type is extended."
@@ -212,14 +178,13 @@ impl CatalogPort for MangrobeCatalog {
             included_column_statistics_types: included_column_statistics_types
                 .iter()
                 .copied()
-                .map(to_mangrobe_statistics_type)
+                .map(to_mangrobe_column_statistics_type)
                 .collect(),
             included_file_metadata_types: included_file_metadata_types
                 .iter()
                 .copied()
                 .map(to_mangrobe_metadata_type)
                 .collect(),
-            ..Default::default()
         };
         let response = self
             .mangrobe
@@ -234,7 +199,7 @@ impl CatalogPort for MangrobeCatalog {
                 let file_id = file.file_id;
                 Ok((
                     file_id.clone(),
-                    CatalogFileInfo {
+                    FileInfo {
                         file_id,
                         path: file.path,
                         size: u64::try_from(file.size)
@@ -244,15 +209,11 @@ impl CatalogPort for MangrobeCatalog {
                             .into_iter()
                             .map(|statistics| ColumnStatistics {
                                 column_name: statistics.column_name,
-                                min: statistics
-                                    .min
-                                    .and_then(StatisticValue::from_statistics_value),
-                                max: statistics
-                                    .max
-                                    .and_then(StatisticValue::from_statistics_value),
+                                min: statistics.min.and_then(from_mangrobe_statistics_value),
+                                max: statistics.max.and_then(from_mangrobe_statistics_value),
                             })
                             .collect(),
-                        file_metadata: crate::domain::port::catalog::FileMetadata {
+                        file_metadata: FileMetadata {
                             parquet_metadata: file
                                 .file_metadata
                                 .and_then(|metadata| metadata.parquet_metadata),
@@ -264,10 +225,6 @@ impl CatalogPort for MangrobeCatalog {
             .map_err(CatalogError::from)
     }
 
-    #[allow(
-        clippy::needless_update,
-        reason = "Keep the default update so this remains valid when the type is extended."
-    )]
     async fn update_table_schema(
         &self,
         table_name: &str,
@@ -277,19 +234,18 @@ impl CatalogPort for MangrobeCatalog {
             .public_columns()
             .iter()
             .map(|column| {
-                Ok(to_mangrobe_column(CatalogTableColumn {
-                    name: column.name.clone(),
-                    data_type: CatalogColumnDataType::try_from(column.data_type().clone())?,
-                    nullable: true,
-                    comment: None,
-                }))
+                Ok(to_mangrobe_column(PublicColumnDefinition::new(
+                    column.name.clone(),
+                    column.data_type.clone(),
+                    true,
+                    None,
+                )))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         let param = EvolveTableSchemaRequest {
             identifier: Some(to_mangrobe_table_identifier(table_name)),
             proposed_columns,
-            ..Default::default()
         };
 
         self.mangrobe
@@ -300,15 +256,11 @@ impl CatalogPort for MangrobeCatalog {
         Ok(())
     }
 
-    #[allow(
-        clippy::needless_update,
-        reason = "Keep the default update so this remains valid when the type is extended."
-    )]
     async fn add_files(
         &self,
         idempotency_key: &[u8],
         table_name: &str,
-        stream_id: i64,
+        stream: i64,
         entries: Vec<AddFilesEntry>,
     ) -> Result<(), CatalogError> {
         let add_file_entries = entries
@@ -318,12 +270,10 @@ impl CatalogPort for MangrobeCatalog {
         let param = AddFilesRequest {
             idempotency_key: Some(IdempotencyKey {
                 key: idempotency_key.to_vec(),
-                ..Default::default()
             }),
             table_identifier: Some(to_mangrobe_table_identifier(table_name)),
-            stream_id,
+            stream,
             add_file_entries,
-            ..Default::default()
         };
 
         self.mangrobe.data_manipulation().add_files(param).await?;
@@ -340,37 +290,41 @@ fn to_mangrobe_table_identifier(table_name: &str) -> TableIdentifier {
     }
 }
 
-fn from_mangrobe_table_definition(
-    table: MangrobeTableDefinition,
-) -> anyhow::Result<CatalogExternalTableDefinition> {
+fn from_mangrobe_table_definition(table: MangrobeTableDefinition) -> anyhow::Result<TableSchema> {
     let identifier = table
         .identifier
         .context("Mangrobe API returned table without identifier")?;
-    Ok(CatalogExternalTableDefinition {
-        table_name: identifier.table_name,
-        location: from_mangrobe_external_location(
+
+    Ok(TableSchema::try_new(
+        identifier.table_name,
+        from_mangrobe_external_location(
             table
                 .location
                 .context("Mangrobe API returned table without location")?,
         )?,
-        format: from_mangrobe_file_format(table.format)?,
-        columns: table
+        from_mangrobe_file_format(table.format)?,
+        table
             .columns
             .into_iter()
             .map(from_mangrobe_column)
             .collect::<anyhow::Result<Vec<_>>>()?,
-        partition_fields: table
-            .partition_fields
-            .into_iter()
-            .map(from_mangrobe_partition_field)
-            .collect::<anyhow::Result<Vec<_>>>()?,
-        comment: table.comment,
-    })
+        from_mangrobe_stream_field(
+            table
+                .stream_field
+                .context("Mangrobe API returned table without stream_column")?,
+        )?,
+        from_mangrobe_partition_field(
+            table
+                .partition_field
+                .context("Mangrobe API returned table without partition_field")?,
+        )?,
+        table.comment,
+    )?)
 }
 
 fn from_mangrobe_external_location(
     location: MangrobeExternalLocation,
-) -> anyhow::Result<CatalogExternalLocation> {
+) -> anyhow::Result<ExternalLocation> {
     let storage_scheme = MangrobeStorageScheme::try_from(location.storage_scheme)
         .context("Mangrobe API returned invalid storage scheme")?;
     if storage_scheme != MangrobeStorageScheme::S3 {
@@ -379,7 +333,7 @@ fn from_mangrobe_external_location(
         ));
     }
 
-    Ok(CatalogExternalLocation {
+    Ok(ExternalLocation {
         bucket: location
             .bucket
             .context("Mangrobe API returned S3 location without bucket")?,
@@ -389,280 +343,289 @@ fn from_mangrobe_external_location(
     })
 }
 
-fn from_mangrobe_column(column: MangrobeColumn) -> anyhow::Result<CatalogTableColumn> {
-    Ok(CatalogTableColumn {
-        name: column.name,
-        data_type: from_mangrobe_data_type(
+fn from_mangrobe_column(column: MangrobeColumn) -> anyhow::Result<PublicColumnDefinition> {
+    Ok(PublicColumnDefinition::new(
+        column.name,
+        from_mangrobe_data_type(
             column
                 .data_type
                 .context("Mangrobe API returned column without data_type")?,
         )?,
-        nullable: column.nullable,
-        comment: column.comment,
-    })
+        column.nullable,
+        column.comment,
+    ))
 }
 
-fn from_mangrobe_partition_field(
-    field: MangrobePartitionField,
-) -> anyhow::Result<CatalogPartitionField> {
-    Ok(CatalogPartitionField {
-        source_column: field.src_column,
-        destination_column: field.dst_column,
-        transform: from_mangrobe_partition_transform(field.transform)?,
-        result_type: from_mangrobe_data_type(
-            field
-                .result_type
-                .context("Mangrobe API returned partition field without result_type")?,
-        )?,
-    })
+fn from_mangrobe_partition_field(field: MangrobePartitionField) -> anyhow::Result<String> {
+    if field.transform != MangrobePartitionTransform::Identity as i32 {
+        return Err(anyhow!(
+            "Mangrobe API returned invalid partition format. Only Identity is supported"
+        ));
+    }
+    if field.dst_column.is_some() {
+        return Err(anyhow!(
+            "Mangrobe API returned invalid partition format. dst_column is not supported"
+        ));
+    }
+    match MangrobePartitionDataType::try_from(field.result_type)
+        .context("Mangrobe API returned invalid partition data type")?
+    {
+        MangrobePartitionDataType::TimeMicrosecond | MangrobePartitionDataType::Int64 => {}
+        other => {
+            return Err(anyhow!(
+                "Mangrobe API returned unsupported partition data type: {other:?}"
+            ));
+        }
+    }
+
+    Ok(field.src_column)
 }
 
-fn from_mangrobe_file_format(value: i32) -> anyhow::Result<CatalogFileFormat> {
+fn from_mangrobe_stream_field(field: MangrobeStreamField) -> anyhow::Result<String> {
+    if field.transform != MangrobePartitionTransform::Identity as i32 {
+        return Err(anyhow!(
+            "Mangrobe API returned invalid stream format. Only Identity is supported"
+        ));
+    }
+    if field.dst_column.is_some() {
+        return Err(anyhow!(
+            "Mangrobe API returned invalid stream format. No dst_column is allowed"
+        ));
+    }
+    if field.result_type != MangrobeStreamDataType::Int64 as i32 {
+        return Err(anyhow!(
+            "Mangrobe API returned invalid stream format. Only int64 is supported"
+        ));
+    }
+
+    Ok(field.src_column)
+}
+
+fn from_mangrobe_file_format(value: i32) -> anyhow::Result<FileFormat> {
     match MangrobeFileFormat::try_from(value)
         .context("Mangrobe API returned invalid file format")?
     {
-        MangrobeFileFormat::Vortex => Ok(CatalogFileFormat::Vortex),
+        MangrobeFileFormat::Vortex => Ok(FileFormat::Vortex),
         other => Err(anyhow!(
             "Mangrobe API returned unsupported file format: {other:?}"
         )),
     }
 }
 
-fn from_mangrobe_partition_transform(value: i32) -> anyhow::Result<CatalogPartitionTransform> {
-    match MangrobePartitionTransform::try_from(value)
-        .context("Mangrobe API returned invalid partition transform")?
-    {
-        MangrobePartitionTransform::Identity => Ok(CatalogPartitionTransform::Identity),
-        other => Err(anyhow!(
-            "Mangrobe API returned unsupported partition transform: {other:?}"
-        )),
-    }
+fn from_mangrobe_statistics_value(value: StatisticsValue) -> Option<StatisticValue> {
+    let val = match value.value? {
+        Value::DoubleValue(val) => StatisticValue::Float64(val),
+    };
+
+    Some(val)
 }
 
-fn from_mangrobe_data_type(data_type: MangrobeDataType) -> anyhow::Result<CatalogColumnDataType> {
+fn from_mangrobe_data_type(data_type: MangrobeDataType) -> anyhow::Result<ColumnDataType> {
     let data_type = data_type
         .r#type
         .context("Mangrobe API returned data_type without type")?;
 
     match data_type {
         data_type::Type::Scalar(value) => from_mangrobe_scalar_type(value),
-        data_type::Type::Time(time) => Ok(CatalogColumnDataType::Time(from_mangrobe_time_unit(
+        data_type::Type::Time(time) => Ok(ColumnDataType::Timestamp(from_mangrobe_time_unit(
             time.unit,
         )?)),
     }
 }
 
-fn from_mangrobe_scalar_type(value: i32) -> anyhow::Result<CatalogColumnDataType> {
+fn from_mangrobe_scalar_type(value: i32) -> anyhow::Result<ColumnDataType> {
     match MangrobeScalarType::try_from(value)
         .context("Mangrobe API returned invalid scalar type")?
     {
-        MangrobeScalarType::Bool => Ok(CatalogColumnDataType::Bool),
-        MangrobeScalarType::Int32 => Ok(CatalogColumnDataType::Int32),
-        MangrobeScalarType::Int64 => Ok(CatalogColumnDataType::Int64),
-        MangrobeScalarType::Float64 => Ok(CatalogColumnDataType::Float64),
-        MangrobeScalarType::String => Ok(CatalogColumnDataType::String),
-        MangrobeScalarType::Date => Ok(CatalogColumnDataType::Date),
+        MangrobeScalarType::Bool => Ok(ColumnDataType::Bool),
+        MangrobeScalarType::Int32 => Ok(ColumnDataType::Int32),
+        MangrobeScalarType::Int64 => Ok(ColumnDataType::Int64),
+        MangrobeScalarType::Float64 => Ok(ColumnDataType::Float64),
+        MangrobeScalarType::String => Ok(ColumnDataType::String),
+        MangrobeScalarType::Date => Ok(ColumnDataType::Date),
         other => Err(anyhow!(
             "Mangrobe API returned unsupported scalar type: {other:?}"
         )),
     }
 }
 
-fn from_mangrobe_time_unit(value: i32) -> anyhow::Result<CatalogTimeUnit> {
+fn from_mangrobe_time_unit(value: i32) -> anyhow::Result<TimeUnit> {
     match MangrobeTimeUnit::try_from(value).context("Mangrobe API returned invalid time unit")? {
-        MangrobeTimeUnit::Second => Ok(CatalogTimeUnit::Second),
-        MangrobeTimeUnit::Millisecond => Ok(CatalogTimeUnit::Millisecond),
-        MangrobeTimeUnit::Microsecond => Ok(CatalogTimeUnit::Microsecond),
-        MangrobeTimeUnit::Nanosecond => Ok(CatalogTimeUnit::Nanosecond),
+        MangrobeTimeUnit::Second => Ok(TimeUnit::Second),
+        MangrobeTimeUnit::Millisecond => Ok(TimeUnit::Millisecond),
+        MangrobeTimeUnit::Microsecond => Ok(TimeUnit::Microsecond),
+        MangrobeTimeUnit::Nanosecond => Ok(TimeUnit::Nanosecond),
         other => Err(anyhow!(
             "Mangrobe API returned unsupported time unit: {other:?}"
         )),
     }
 }
 
-#[allow(
-    clippy::needless_update,
-    reason = "Keep the default update so this remains valid when the type is extended."
-)]
-fn to_mangrobe_table_definition(
-    table: crate::domain::port::catalog::ExternalTableDefinition,
-) -> MangrobeTableDefinition {
+fn to_mangrobe_table_definition(table: TableSchema) -> MangrobeTableDefinition {
+    let stream_field = to_mangrobe_stream_field(table.stream_column());
+    let partition_field = to_mangrobe_partition_field(
+        table.partition_column(),
+        table.partition_data_type().clone(),
+    );
+
     MangrobeTableDefinition {
         identifier: Some(to_mangrobe_table_identifier(&table.table_name)),
         location: Some(to_mangrobe_external_location(table.location)),
         format: to_mangrobe_file_format(table.format) as i32,
-        columns: table.columns.into_iter().map(to_mangrobe_column).collect(),
-        partition_fields: table
-            .partition_fields
+        columns: table
+            .public_columns
             .into_iter()
-            .map(to_mangrobe_partition_field)
+            .map(to_mangrobe_column)
             .collect(),
+        stream_field: Some(stream_field),
+        partition_field: Some(partition_field),
         comment: table.comment,
-        ..Default::default()
     }
 }
 
-#[allow(
-    clippy::needless_update,
-    reason = "Keep the default update so this remains valid when the type is extended."
-)]
-fn to_mangrobe_external_location(
-    location: crate::domain::port::catalog::ExternalLocation,
-) -> MangrobeExternalLocation {
+fn to_mangrobe_external_location(location: ExternalLocation) -> MangrobeExternalLocation {
     MangrobeExternalLocation {
         storage_scheme: MangrobeStorageScheme::S3 as i32,
         bucket: Some(location.bucket),
         prefix: Some(location.prefix),
         endpoint: location.endpoint,
         region: location.region,
-        ..Default::default()
     }
 }
 
-#[allow(
-    clippy::needless_update,
-    reason = "Keep the default update so this remains valid when the type is extended."
-)]
-fn to_mangrobe_column(column: CatalogTableColumn) -> MangrobeColumn {
+fn to_mangrobe_column(column: PublicColumnDefinition) -> MangrobeColumn {
     MangrobeColumn {
         name: column.name,
         data_type: Some(to_mangrobe_data_type(column.data_type)),
         nullable: column.nullable,
         comment: column.comment,
-        ..Default::default()
     }
 }
 
-#[allow(
-    clippy::needless_update,
-    reason = "Keep the default update so this remains valid when the type is extended."
-)]
-fn to_mangrobe_partition_field(field: CatalogPartitionField) -> MangrobePartitionField {
+fn to_mangrobe_stream_field(column_name: String) -> MangrobeStreamField {
+    MangrobeStreamField {
+        src_column: column_name,
+        dst_column: None,
+        transform: MangrobePartitionTransform::Identity as i32,
+        result_type: MangrobeStreamDataType::Int64 as i32,
+    }
+}
+
+fn to_mangrobe_partition_field(
+    column: String,
+    data_type: ColumnDataType,
+) -> MangrobePartitionField {
     MangrobePartitionField {
-        src_column: field.source_column,
-        dst_column: field.destination_column,
-        transform: to_mangrobe_partition_transform(field.transform) as i32,
-        result_type: Some(to_mangrobe_data_type(field.result_type)),
-        ..Default::default()
+        src_column: column,
+        dst_column: None,
+        transform: MangrobePartitionTransform::Identity as i32,
+        result_type: to_mangrobe_partition_data_type(data_type) as i32,
     }
 }
 
-fn to_mangrobe_file_format(format: CatalogFileFormat) -> MangrobeFileFormat {
+fn to_mangrobe_partition_data_type(data_type: ColumnDataType) -> MangrobePartitionDataType {
+    match data_type {
+        ColumnDataType::Timestamp(TimeUnit::Microsecond) => {
+            MangrobePartitionDataType::TimeMicrosecond
+        }
+        ColumnDataType::Int64 => MangrobePartitionDataType::Int64,
+        other => unreachable!("unsupported partition data type: {other}"),
+    }
+}
+
+fn to_mangrobe_file_format(format: FileFormat) -> MangrobeFileFormat {
     match format {
-        CatalogFileFormat::Vortex => MangrobeFileFormat::Vortex,
+        FileFormat::Vortex => MangrobeFileFormat::Vortex,
     }
 }
 
-fn to_mangrobe_partition_transform(
-    transform: CatalogPartitionTransform,
-) -> MangrobePartitionTransform {
-    match transform {
-        CatalogPartitionTransform::Identity => MangrobePartitionTransform::Identity,
-    }
-}
-
-#[allow(
-    clippy::needless_update,
-    reason = "Keep the default update so this remains valid when the type is extended."
-)]
-fn to_mangrobe_data_type(data_type: CatalogColumnDataType) -> MangrobeDataType {
+fn to_mangrobe_data_type(data_type: ColumnDataType) -> MangrobeDataType {
     MangrobeDataType {
         r#type: Some(match data_type {
-            CatalogColumnDataType::Bool => data_type::Type::Scalar(MangrobeScalarType::Bool as i32),
-            CatalogColumnDataType::Int32 => {
-                data_type::Type::Scalar(MangrobeScalarType::Int32 as i32)
-            }
-            CatalogColumnDataType::Int64 => {
-                data_type::Type::Scalar(MangrobeScalarType::Int64 as i32)
-            }
-            CatalogColumnDataType::Float64 => {
-                data_type::Type::Scalar(MangrobeScalarType::Float64 as i32)
-            }
-            CatalogColumnDataType::String => {
-                data_type::Type::Scalar(MangrobeScalarType::String as i32)
-            }
-            CatalogColumnDataType::Date => data_type::Type::Scalar(MangrobeScalarType::Date as i32),
-            CatalogColumnDataType::Time(unit) => data_type::Type::Time(MangrobeTimeType {
+            ColumnDataType::Bool => data_type::Type::Scalar(MangrobeScalarType::Bool as i32),
+            ColumnDataType::Int32 => data_type::Type::Scalar(MangrobeScalarType::Int32 as i32),
+            ColumnDataType::Int64 => data_type::Type::Scalar(MangrobeScalarType::Int64 as i32),
+            ColumnDataType::Float64 => data_type::Type::Scalar(MangrobeScalarType::Float64 as i32),
+            ColumnDataType::String => data_type::Type::Scalar(MangrobeScalarType::String as i32),
+            ColumnDataType::Date => data_type::Type::Scalar(MangrobeScalarType::Date as i32),
+            ColumnDataType::Timestamp(unit) => data_type::Type::Time(MangrobeTimestampType {
                 unit: to_mangrobe_time_unit(unit) as i32,
-                ..Default::default()
             }),
         }),
-        ..Default::default()
     }
 }
 
-fn to_mangrobe_time_unit(unit: CatalogTimeUnit) -> MangrobeTimeUnit {
+fn to_mangrobe_time_unit(unit: TimeUnit) -> MangrobeTimeUnit {
     match unit {
-        CatalogTimeUnit::Second => MangrobeTimeUnit::Second,
-        CatalogTimeUnit::Millisecond => MangrobeTimeUnit::Millisecond,
-        CatalogTimeUnit::Microsecond => MangrobeTimeUnit::Microsecond,
-        CatalogTimeUnit::Nanosecond => MangrobeTimeUnit::Nanosecond,
+        TimeUnit::Second => MangrobeTimeUnit::Second,
+        TimeUnit::Millisecond => MangrobeTimeUnit::Millisecond,
+        TimeUnit::Microsecond => MangrobeTimeUnit::Microsecond,
+        TimeUnit::Nanosecond => MangrobeTimeUnit::Nanosecond,
     }
 }
 
-#[allow(
-    clippy::needless_update,
-    reason = "Keep the default update so this remains valid when the type is extended."
-)]
-fn to_mangrobe_partition_time_filter(filter: &PartitionTimeFilter) -> MangrobePartitionTimeFilter {
-    MangrobePartitionTimeFilter {
+fn to_mangrobe_partition_filter(filter: &PartitionFilter) -> MangrobePartitionFilter {
+    MangrobePartitionFilter {
         predicates: filter
             .predicates
             .iter()
-            .map(to_mangrobe_partition_time_predicate)
+            .map(to_mangrobe_partition_predicate)
             .collect(),
-        ..Default::default()
     }
 }
 
-#[allow(
-    clippy::needless_update,
-    reason = "Keep the default update so this remains valid when the type is extended."
-)]
-fn to_mangrobe_partition_time_predicate(
-    predicate: &PartitionTimePredicate,
-) -> MangrobePartitionTimePredicate {
+fn to_mangrobe_partition_predicate(predicate: &PartitionPredicate) -> MangrobePartitionPredicate {
     match predicate {
-        PartitionTimePredicate::In(times) => MangrobePartitionTimePredicate {
-            predicate: Some(partition_time_predicate::Predicate::In(PartitionTimeIn {
-                times: times.iter().copied().map(timestamp_from_micros).collect(),
-                ..Default::default()
+        PartitionPredicate::In(partitions) => MangrobePartitionPredicate {
+            predicate: Some(partition_predicate::Predicate::In(PartitionIn {
+                partitions: partitions
+                    .iter()
+                    .copied()
+                    .map(to_mangrobe_partition_value)
+                    .collect(),
             })),
-            ..Default::default()
         },
-        PartitionTimePredicate::Range(range) => MangrobePartitionTimePredicate {
-            predicate: Some(partition_time_predicate::Predicate::Range(
-                PartitionTimeRange {
-                    lower: range.lower.as_ref().map(to_mangrobe_partition_time_bound),
-                    upper: range.upper.as_ref().map(to_mangrobe_partition_time_bound),
-                    ..Default::default()
-                },
-            )),
-            ..Default::default()
+        PartitionPredicate::Range(range) => MangrobePartitionPredicate {
+            predicate: Some(partition_predicate::Predicate::Range(PartitionRange {
+                lower: range.lower.as_ref().map(to_mangrobe_partition_bound),
+                upper: range.upper.as_ref().map(to_mangrobe_partition_bound),
+            })),
         },
     }
 }
 
-#[allow(
-    clippy::needless_update,
-    reason = "Keep the default update so this remains valid when the type is extended."
-)]
-fn to_mangrobe_partition_time_bound(bound: &PartitionTimeBound) -> MangrobePartitionTimeBound {
-    MangrobePartitionTimeBound {
-        time: Some(timestamp_from_micros(bound.time)),
+fn to_mangrobe_partition_bound(bound: &PartitionRangeBound) -> MangrobePartitionBound {
+    MangrobePartitionBound {
+        partition: Some(to_mangrobe_partition_value(bound.partition)),
         inclusivity: match bound.inclusivity {
             BoundInclusivity::Inclusive => MangrobeBoundInclusivity::Inclusive,
             BoundInclusivity::Exclusive => MangrobeBoundInclusivity::Exclusive,
         } as i32,
-        ..Default::default()
     }
 }
 
-fn to_mangrobe_statistics_type(value: FileColumnStatisticsType) -> i32 {
-    (match value {
-        FileColumnStatisticsType::Min => MangrobeFileColumnStatisticsType::Min,
-        FileColumnStatisticsType::Max => MangrobeFileColumnStatisticsType::Max,
-    }) as i32
+fn to_mangrobe_partition_value(partition: Partition) -> PartitionValue {
+    PartitionValue {
+        value: Some(match partition {
+            Partition::TimeMicrosecond(value) => {
+                partition_value::Value::Time(timestamp_from_micros(value))
+            }
+            Partition::Int64(value) => partition_value::Value::Int64Value(value),
+        }),
+    }
+}
+
+fn from_mangrobe_partition_value(value: &PartitionValue) -> anyhow::Result<Partition> {
+    match value
+        .value
+        .as_ref()
+        .context("Mangrobe API returned partition without value")?
+    {
+        partition_value::Value::Time(value) => {
+            Ok(Partition::TimeMicrosecond(micros_from_timestamp(value)))
+        }
+        partition_value::Value::Int64Value(value) => Ok(Partition::Int64(*value)),
+    }
 }
 
 fn to_mangrobe_metadata_type(value: FileMetadataType) -> i32 {
@@ -671,26 +634,24 @@ fn to_mangrobe_metadata_type(value: FileMetadataType) -> i32 {
     }) as i32
 }
 
-#[allow(
-    clippy::needless_update,
-    reason = "Keep the default update so this remains valid when the type is extended."
-)]
+fn to_mangrobe_column_statistics_type(value: FileColumnStatisticsType) -> i32 {
+    (match value {
+        FileColumnStatisticsType::Min => MangrobeFileColumnStatisticsType::Min,
+        FileColumnStatisticsType::Max => MangrobeFileColumnStatisticsType::Max,
+    }) as i32
+}
+
 fn to_mangrobe_add_file_entry(entry: AddFilesEntry) -> anyhow::Result<MangrobeAddFileEntry> {
     Ok(MangrobeAddFileEntry {
-        partition_time: Some(timestamp_from_micros(entry.partition_time)),
+        partition: Some(to_mangrobe_partition_value(entry.partition)),
         file_info_entries: entry
             .files
             .into_iter()
             .map(to_mangrobe_add_file_info_entry)
             .collect::<anyhow::Result<Vec<_>>>()?,
-        ..Default::default()
     })
 }
 
-#[allow(
-    clippy::needless_update,
-    reason = "Keep the default update so this remains valid when the type is extended."
-)]
 fn to_mangrobe_add_file_info_entry(
     file: crate::domain::port::catalog::AddFile,
 ) -> anyhow::Result<MangrobeAddFileInfoEntry> {
@@ -705,14 +666,11 @@ fn to_mangrobe_add_file_info_entry(
                 column_name: statistics.column_name,
                 min: statistics.min.map(statistic_value_to_f64),
                 max: statistics.max.map(statistic_value_to_f64),
-                ..Default::default()
             })
             .collect(),
         file_metadata: Some(MangrobeFileMetadataEntry {
             parquet_metadata: file.file_metadata.parquet_metadata,
-            ..Default::default()
         }),
-        ..Default::default()
     })
 }
 
@@ -725,15 +683,10 @@ fn statistic_value_to_f64(value: StatisticValue) -> f64 {
     }
 }
 
-#[allow(
-    clippy::needless_update,
-    reason = "Keep the default update so this remains valid when the type is extended."
-)]
 pub fn timestamp_from_micros(micros: i64) -> Timestamp {
     Timestamp {
         seconds: micros.div_euclid(1_000_000),
         nanos: (micros.rem_euclid(1_000_000) * 1_000) as i32,
-        ..Default::default()
     }
 }
 

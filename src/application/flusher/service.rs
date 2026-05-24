@@ -1,13 +1,15 @@
 use crate::application::error::ApplicationError;
 use crate::domain::common_ports::CommonPorts;
+use crate::domain::file::FileMetadata;
 use crate::domain::flush_unit::FlushUnit;
 use crate::domain::flush_unit_record::FlushUnitRecord;
-use crate::domain::port::catalog::{AddFile, AddFilesEntry, CatalogPort, FileMetadata};
+use crate::domain::port::catalog::{AddFile, AddFilesEntry, CatalogPort};
 use crate::domain::port::object_store::ObjectStorePort;
 use crate::domain::table::Table;
 use crate::domain::table_schema::TableSchema;
 use crate::domain::vortex_file_record::VortexFileRecord;
 use crate::infrastructure::vortex::writer::write_vortex_file;
+use anyhow::Context;
 use arrow::compute::concat_batches;
 use arrow::record_batch::RecordBatch;
 use std::collections::BTreeMap;
@@ -153,7 +155,7 @@ impl<C: CatalogPort, O: ObjectStorePort> FlushService<C, O> {
             .upload(&table, &path, write_result.temp_file.path())?;
 
         let entries = vec![AddFilesEntry {
-            partition_time: file_record.partition_time_micros(),
+            partition: file_record.partition(),
             files: vec![AddFile {
                 path,
                 size: write_result.file_size,
@@ -165,7 +167,7 @@ impl<C: CatalogPort, O: ObjectStorePort> FlushService<C, O> {
             .add_files(
                 idempotency_key,
                 &table.schema.table_name,
-                uploading_entry.flush_unit.stream_id.into(),
+                uploading_entry.flush_unit.stream,
                 entries,
             )
             .await?;
@@ -193,7 +195,7 @@ impl UploadingBufferEntry {
         let schema = self
             .records
             .first()
-            .expect("uploading records must not be empty")
+            .context("uploading records must not be empty")?
             .schema();
         let record = concat_batches(&schema, self.records.iter())?;
 

@@ -1,4 +1,4 @@
-use arrow::array::{Int32Array, StringArray, TimestampMicrosecondArray};
+use arrow::array::{Int32Array, Int64Array, StringArray, TimestampMicrosecondArray};
 use arrow::datatypes::{ArrowNativeType, DataType, Field, Schema, TimeUnit};
 use arrow::record_batch::RecordBatch;
 use arrow_flight::error::FlightError;
@@ -52,12 +52,17 @@ struct Config {
 fn sample_batch() -> Result<RecordBatch, Box<dyn std::error::Error>> {
     let schema = Arc::new(Schema::new(vec![
         Field::new("id", DataType::Int32, true),
-        Field::new("stream_id", DataType::Int32, true),
+        Field::new("stream", DataType::Int64, true),
         Field::new("message", DataType::Utf8, true),
         Field::new("user", DataType::Utf8, true),
         Field::new("new_user", DataType::Utf8, true),
         Field::new(
             "posted_at",
+            DataType::Timestamp(TimeUnit::Microsecond, None),
+            true,
+        ),
+        Field::new(
+            "posted_at_hour",
             DataType::Timestamp(TimeUnit::Microsecond, None),
             true,
         ),
@@ -69,7 +74,7 @@ fn sample_batch() -> Result<RecordBatch, Box<dyn std::error::Error>> {
         schema,
         vec![
             Arc::new(Int32Array::from(vec![1, 2, 3, 4])),
-            Arc::new(Int32Array::from(vec![0, 0, 0, 0])),
+            Arc::new(Int64Array::from(vec![0, 0, 0, 0])),
             Arc::new(StringArray::from(vec![
                 "hello", "flight", "mangrobe", "client",
             ])),
@@ -85,8 +90,28 @@ fn sample_batch() -> Result<RecordBatch, Box<dyn std::error::Error>> {
                     .unwrap(),
                 1_777_527_800_000_000,
             ])),
+            Arc::new(TimestampMicrosecondArray::from(vec![
+                truncate_micros_to_hour(1_777_523_200_000_000),
+                truncate_micros_to_hour(1_777_526_800_000_000),
+                truncate_micros_to_hour(
+                    now.duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_micros()
+                        .to_i64()
+                        .unwrap(),
+                ),
+                truncate_micros_to_hour(1_777_527_800_000_000),
+            ])),
         ],
     )?;
 
     Ok(batch)
+}
+
+const SECONDS_PER_HOUR: i64 = 60 * 60;
+const MILLIS_PER_HOUR: i64 = SECONDS_PER_HOUR * 1_000;
+const MICROS_PER_HOUR: i64 = MILLIS_PER_HOUR * 1_000;
+
+fn truncate_micros_to_hour(value: i64) -> i64 {
+    value.div_euclid(MICROS_PER_HOUR) * MICROS_PER_HOUR
 }

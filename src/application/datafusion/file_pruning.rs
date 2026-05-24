@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
+use crate::domain::file::{File, FileColumnStatisticsType, FileInfo};
 use crate::domain::port::catalog::CatalogError;
-use crate::domain::port::catalog::{
-    CatalogFile, CatalogFileInfo, CatalogPort, FileColumnStatisticsType,
-};
+use crate::domain::port::catalog::CatalogPort;
 use crate::domain::statistics::{ColumnStatistics, StatisticValue};
 use datafusion::logical_expr::{Between, BinaryExpr, Expr, Operator};
 use datafusion::scalar::ScalarValue;
@@ -11,9 +10,9 @@ use datafusion::scalar::ScalarValue;
 pub(crate) async fn prune_files_by_statistics<C: CatalogPort>(
     catalog_port: &C,
     table_name: &str,
-    files: &[CatalogFile],
+    files: &[File],
     filters: &[Expr],
-) -> Result<Vec<CatalogFile>, CatalogError> {
+) -> Result<Vec<File>, CatalogError> {
     let file_ids = files
         .iter()
         .map(|file| file.file_id.clone())
@@ -39,7 +38,7 @@ pub(crate) async fn prune_files_by_statistics<C: CatalogPort>(
         .collect())
 }
 
-fn file_matches_all_filters(file_info: &CatalogFileInfo, filters: &[Expr]) -> bool {
+fn file_matches_all_filters(file_info: &FileInfo, filters: &[Expr]) -> bool {
     let column_statistics_by_name = file_info
         .column_statistics
         .iter()
@@ -318,7 +317,7 @@ fn swap_comparison_operator(op: Operator) -> Operator {
 #[cfg(test)]
 mod tests {
     use super::file_matches_all_filters;
-    use crate::domain::port::catalog::{CatalogFileInfo, FileMetadata};
+    use crate::domain::file::{FileInfo, FileMetadata};
     use crate::domain::statistics::{ColumnStatistics, StatisticValue};
     use datafusion::prelude::{col, lit};
 
@@ -498,8 +497,8 @@ mod tests {
         assert_eq!(false, gte_above_max);
     }
 
-    fn build_file_info(min: Option<i32>, max: Option<i32>) -> CatalogFileInfo {
-        CatalogFileInfo {
+    fn build_file_info(min: Option<i32>, max: Option<i32>) -> FileInfo {
+        FileInfo {
             file_id: "id:test".to_string(),
             path: "test".to_string(),
             size: 1,

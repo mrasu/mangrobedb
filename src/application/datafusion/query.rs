@@ -1,3 +1,3 @@
-pub mod create_external_table;
+pub mod create_table;
 pub mod object_name;
 mod util;

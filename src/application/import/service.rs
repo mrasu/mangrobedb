@@ -33,7 +33,10 @@ impl<C: CatalogPort, O: ObjectStorePort> ImportService<C, O> {
         batches: Vec<RecordBatch>,
     ) -> Result<i64, ApplicationError> {
         let table = Table::load(self.catalog_port.as_ref(), table_name).await?;
-        if !self.object_store_port.is_accessible(&table.schema.bucket) {
+        if !self
+            .object_store_port
+            .is_accessible(&table.schema.location.bucket)
+        {
             return Err(ApplicationUserError::S3InaccessibleTable {
                 table_name: table.schema.table_name,
             }

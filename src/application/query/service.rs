@@ -1,20 +1,20 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::application::datafusion::query::create_external_table::parse_external_table_statement;
+use crate::application::datafusion::query::create_table::build_create_table_request;
 use crate::application::datafusion::query::object_name::parse_to_single_table_name;
 use crate::application::datafusion::sql::execute_statement;
-use crate::application::datafusion::table_provider::DummyTableProvider;
+use crate::application::datafusion::table_provider::MangrobeTableProvider;
 use crate::application::error::{ApplicationError, ApplicationUserError};
 use crate::application::query::QueryOutput;
-use crate::application::query::external_table_definition::convert_external_table_definition_to_response_batch;
+use crate::application::query::table_schema::convert_table_schema_to_response_batch;
 use crate::domain::port::catalog::{CatalogPort, TableSummary};
 use crate::domain::port::object_store::ObjectStorePort;
 use crate::domain::table::Table;
 use arrow::datatypes::Schema;
 use datafusion::prelude::SessionContext;
-use datafusion::sql::parser::{CreateExternalTable, Statement};
-use datafusion::sql::sqlparser::ast::{ObjectName, ShowCreateObject};
+use datafusion::sql::parser::Statement;
+use datafusion::sql::sqlparser::ast::{CreateTable, ObjectName, ShowCreateObject};
 
 #[derive(Debug)]
 pub struct QueryService<C: CatalogPort, O: ObjectStorePort> {
@@ -42,24 +42,22 @@ impl<C: CatalogPort + 'static, O: ObjectStorePort> QueryService<C, O> {
                     self.query_statement(ctx, Statement::Statement(statement))
                         .await
                 }
-                datafusion::sql::sqlparser::ast::Statement::ShowCreate {
-                    obj_type,
-                    obj_name,
-                } => self.show_create_table(obj_type, obj_name).await,
+                datafusion::sql::sqlparser::ast::Statement::ShowCreate { obj_type, obj_name } => {
+                    self.show_create_table(obj_type, obj_name).await
+                }
+                datafusion::sql::sqlparser::ast::Statement::CreateTable(create_table) => {
+                    self.create_table(create_table).await
+                }
                 _ => Err(ApplicationUserError::NotImplemented {
                     message:
-                        "only SELECT queries, CREATE EXTERNAL TABLE, and SHOW CREATE TABLE are supported"
+                        "only SELECT queries, CREATE TABLE, and SHOW CREATE TABLE are supported"
                             .to_string(),
                 }
                 .into()),
             },
-            Statement::CreateExternalTable(statement) => {
-                self.create_external_table(statement).await
-            }
             _ => Err(ApplicationUserError::NotImplemented {
-                message:
-                    "only SELECT queries, CREATE EXTERNAL TABLE, and SHOW CREATE TABLE are supported"
-                        .to_string(),
+                message: "only SELECT queries, CREATE TABLE, and SHOW CREATE TABLE are supported"
+                    .to_string(),
             }
             .into()),
         }
@@ -69,12 +67,9 @@ impl<C: CatalogPort + 'static, O: ObjectStorePort> QueryService<C, O> {
         Ok(self.catalog_port.list_tables().await?)
     }
 
-    async fn create_external_table(
-        &self,
-        statement: CreateExternalTable,
-    ) -> Result<QueryOutput, ApplicationError> {
-        let request = parse_external_table_statement(statement)?;
-        self.catalog_port.create_external_table(request).await?;
+    async fn create_table(&self, statement: &CreateTable) -> Result<QueryOutput, ApplicationError> {
+        let request = build_create_table_request(statement)?;
+        self.catalog_port.create_table(request).await?;
 
         Ok(QueryOutput {
             schema: Arc::new(Schema::empty()),
@@ -97,7 +92,7 @@ impl<C: CatalogPort + 'static, O: ObjectStorePort> QueryService<C, O> {
         let table_name = parse_to_single_table_name(obj_name)?;
         let table = self.catalog_port.get_table(&table_name).await?;
 
-        let batch = convert_external_table_definition_to_response_batch(&table)?;
+        let batch = convert_table_schema_to_response_batch(&table)?;
         Ok(QueryOutput {
             schema: batch.schema(),
             batches: vec![batch],
@@ -131,7 +126,7 @@ impl<C: CatalogPort + 'static, O: ObjectStorePort> QueryService<C, O> {
         for table_name in table_names {
             let table = Table::load(self.catalog_port.as_ref(), table_name).await?;
 
-            let table_bucket = &table.schema.bucket;
+            let table_bucket = &table.schema.location.bucket;
             if !self.object_store_port.is_accessible(table_bucket) {
                 return Err(ApplicationUserError::S3InaccessibleTable {
                     table_name: table.schema.table_name,
@@ -142,7 +137,7 @@ impl<C: CatalogPort + 'static, O: ObjectStorePort> QueryService<C, O> {
             let store_url = url::Url::parse(&format!("s3://{}", table_bucket))?;
             ctx.register_object_store(&store_url, self.object_store_port.object_store());
 
-            let table_provider = Arc::new(DummyTableProvider::try_new(
+            let table_provider = Arc::new(MangrobeTableProvider::try_new(
                 table,
                 Arc::clone(&self.catalog_port),
             )?);

@@ -26,21 +26,6 @@ pub enum ApplicationUserError {
     SchemaMismatch,
     #[error("column name is reserved for mangrobe internals: {column_name}")]
     ReservedColumnName { column_name: String },
-    #[error("required column is missing: {column_name}")]
-    MissingColumn { column_name: String },
-    #[error("incompatible type for column {column_name}: expected {expected}, got {actual}")]
-    IncompatibleColumnType {
-        column_name: String,
-        expected: String,
-        actual: String,
-    },
-    #[error("column must not contain null values: {column_name}")]
-    NullValue { column_name: String },
-    #[error("stream_id must be 0 for every row: row {row_index} has {value:?}")]
-    UnsupportedStreamId {
-        row_index: usize,
-        value: Option<i32>,
-    },
     #[error("not implemented. message: {message}")]
     NotImplemented { message: String },
 }

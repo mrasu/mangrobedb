@@ -60,15 +60,18 @@ sequenceDiagram
    ```bash
    just run
    ```
-3. In another terminal, run query:
+3. In another terminal, run a query:
    ```bash
-   # Create table: CREATE EXTERNAL TABLE hello_table
+   # Set up Mangrobe tables
+   just client-migration-refresh
+   
+   # Create a table: CREATE TABLE hello_table
    just client-create-table
    
-   # Import dummy data
+   # Ingest dummy data
    just client-import
    
-   # Run query: select * from hello_table
+   # Run a query: select * from hello_table
    just client-query
    ```
 
