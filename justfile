@@ -3,8 +3,8 @@ set dotenv-load := true
 run:
     cargo run -- --config mangrobedb.dev.yml
 
-client-import:
-    cargo run --bin client_import
+client-ingest:
+    cargo run --bin client_ingest
 
 default_sql := "select * from hello_table where stream = 0"
 

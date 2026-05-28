@@ -1,6 +1,6 @@
 # MangrobeDB
 
-Schemaless OLAPDB for AI and streaming workloads
+Schemaless OLAP database for AI and streaming workloads
 
 ## Features
 
@@ -68,8 +68,14 @@ sequenceDiagram
    # Create a table: CREATE TABLE hello_table
    just client-create-table
    
+   # List tables
+   just client-list-tables
+   
+   # Show the schema: SHOW CREATE TABLE hello_table
+   just client-show-table
+   
    # Ingest dummy data
-   just client-import
+   just client-ingest
    
    # Run a query: select * from hello_table
    just client-query
