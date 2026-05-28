@@ -109,7 +109,9 @@ mod tests {
     use crate::domain::column_data_type::TimeUnit::Microsecond;
     use crate::domain::file::FileFormat;
     use crate::domain::table::Table;
-    use crate::domain::table_schema::{ExternalLocation, PublicColumnDefinition, TableSchema};
+    use crate::domain::table_schema::{
+        ExternalLocation, ExternalLocationScheme, PublicColumnDefinition, TableSchema,
+    };
     use datafusion::prelude::{col, lit};
 
     const STREAM_COLUMN: &str = "stream_column";
@@ -119,7 +121,13 @@ mod tests {
         Table::new(
             TableSchema::try_new(
                 "hello_table".into(),
-                ExternalLocation::new("my_bucket".into(), "path/prefix".into(), None, None),
+                ExternalLocation::new(
+                    ExternalLocationScheme::S3,
+                    "my_bucket".into(),
+                    "path/prefix".into(),
+                    None,
+                    None,
+                ),
                 FileFormat::Vortex,
                 vec![
                     PublicColumnDefinition::new(STREAM_COLUMN, ColumnDataType::Int64, true, None),

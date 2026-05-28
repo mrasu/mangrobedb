@@ -1,7 +1,7 @@
 use crate::domain::partition::Partition;
 use crate::domain::partition_filter::PartitionFilter;
 use crate::domain::partition_range::{
-    intersect_optional_ranges, BoundInclusivity, PartitionRange, PartitionRangeVec,
+    BoundInclusivity, PartitionRange, PartitionRangeVec, intersect_optional_ranges,
 };
 use crate::domain::table::Table;
 use datafusion::common::{DataFusionError, ScalarValue};
@@ -219,7 +219,9 @@ mod tests {
     use crate::domain::partition_filter::PartitionPredicate;
     use crate::domain::partition_range::PartitionRangeBound;
     use crate::domain::table::Table;
-    use crate::domain::table_schema::{ExternalLocation, PublicColumnDefinition, TableSchema};
+    use crate::domain::table_schema::{
+        ExternalLocation, ExternalLocationScheme, PublicColumnDefinition, TableSchema,
+    };
     use datafusion::prelude::{col, lit};
     use rstest::rstest;
 
@@ -230,7 +232,13 @@ mod tests {
         Table::new(
             TableSchema::try_new(
                 "hello_table".into(),
-                ExternalLocation::new("my_bucket".into(), "path/prefix".into(), None, None),
+                ExternalLocation::new(
+                    ExternalLocationScheme::S3,
+                    "my_bucket".into(),
+                    "path/prefix".into(),
+                    None,
+                    None,
+                ),
                 FileFormat::Vortex,
                 vec![
                     PublicColumnDefinition::new("stream_column", ColumnDataType::Int64, true, None),

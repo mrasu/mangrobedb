@@ -1,8 +1,7 @@
-use crate::application::datafusion::query::util::validation_error;
-use crate::application::error::ApplicationError;
+use crate::application::datafusion::query::codec::error::{CodecError, validation_error};
 use datafusion::logical_expr::sqlparser::ast::ObjectName;
 
-pub fn parse_to_single_table_name(name: &ObjectName) -> Result<String, ApplicationError> {
+pub fn to_single_table_name(name: &ObjectName) -> Result<String, CodecError> {
     let [part] = name.0.as_slice() else {
         return Err(validation_error(format!(
             "qualified table names are not supported: {name}"

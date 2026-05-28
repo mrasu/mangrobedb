@@ -328,20 +328,28 @@ impl TableSchema {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExternalLocation {
+    pub scheme: ExternalLocationScheme,
     pub bucket: String,
     pub prefix: String,
     pub endpoint: Option<String>,
     pub region: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExternalLocationScheme {
+    S3,
+}
+
 impl ExternalLocation {
     pub fn new(
+        scheme: ExternalLocationScheme,
         bucket: String,
         prefix: String,
         endpoint: Option<String>,
         region: Option<String>,
     ) -> Self {
         Self {
+            scheme,
             bucket,
             prefix,
             endpoint,

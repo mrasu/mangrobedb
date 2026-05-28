@@ -6,7 +6,7 @@ use crate::domain::flush_unit_record::FlushUnitRecord;
 use crate::domain::partition::Partition;
 use crate::domain::port::catalog::CatalogPort;
 use crate::domain::table_schema::TableSchema;
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
 use arrow::array::{
     Array, ArrowPrimitiveType, BooleanArray, Int64Array, PrimitiveArray, TimestampMicrosecondArray,
 };

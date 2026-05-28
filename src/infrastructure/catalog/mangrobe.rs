@@ -10,30 +10,32 @@ use crate::domain::port::catalog::{
     TableSummary as CatalogTableSummary,
 };
 use crate::domain::statistics::{ColumnStatistics, StatisticValue};
-use crate::domain::table_schema::{ExternalLocation, PublicColumnDefinition, TableSchema};
-use anyhow::{anyhow, Context};
+use crate::domain::table_schema::{
+    ExternalLocation, ExternalLocationScheme, PublicColumnDefinition, TableSchema,
+};
+use anyhow::{Context, anyhow};
 use async_trait::async_trait;
+use mangrobe_api_server::Mangrobe;
 use mangrobe_api_server::proto::statistics_value::Value;
 use mangrobe_api_server::proto::{
-    data_type, partition_predicate,
-    partition_value, AddFileEntry as MangrobeAddFileEntry, AddFileInfoEntry as MangrobeAddFileInfoEntry,
-    AddFilesRequest,
-    BoundInclusivity as MangrobeBoundInclusivity, Column as MangrobeColumn,
-    ColumnStatisticsEntry as MangrobeColumnStatisticsEntry, CreateTableRequest as MangrobeCreateTableRequest,
-    DataType as MangrobeDataType, EvolveTableSchemaRequest,
-    ExternalLocation as MangrobeExternalLocation, FileColumnStatisticsType as MangrobeFileColumnStatisticsType,
-    FileFormat as MangrobeFileFormat, FileMetadataEntry as MangrobeFileMetadataEntry, FileMetadataType as MangrobeFileMetadataType,
-    GetCurrentStateRequest, GetFileInfoRequest,
-    GetTableRequest as MangrobeGetTableRequest, IdempotencyKey,
-    ListTablesRequest as MangrobeListTablesRequest, PartitionBound as MangrobePartitionBound,
-    PartitionDataType as MangrobePartitionDataType, PartitionField as MangrobePartitionField, PartitionFilter as MangrobePartitionFilter,
-    PartitionIn, PartitionPredicate as MangrobePartitionPredicate,
-    PartitionRange, PartitionTransform as MangrobePartitionTransform, PartitionValue,
-    ScalarType as MangrobeScalarType, StatisticsValue,
-    StorageScheme as MangrobeStorageScheme, StreamDataType as MangrobeStreamDataType, StreamField as MangrobeStreamField,
-    TableDefinition as MangrobeTableDefinition, TableIdentifier, TimeUnit as MangrobeTimeUnit, TimestampType as MangrobeTimestampType,
+    AddFileEntry as MangrobeAddFileEntry, AddFileInfoEntry as MangrobeAddFileInfoEntry,
+    AddFilesRequest, BoundInclusivity as MangrobeBoundInclusivity, Column as MangrobeColumn,
+    ColumnStatisticsEntry as MangrobeColumnStatisticsEntry,
+    CreateTableRequest as MangrobeCreateTableRequest, DataType as MangrobeDataType,
+    EvolveTableSchemaRequest, ExternalLocation as MangrobeExternalLocation,
+    FileColumnStatisticsType as MangrobeFileColumnStatisticsType, FileFormat as MangrobeFileFormat,
+    FileMetadataEntry as MangrobeFileMetadataEntry, FileMetadataType as MangrobeFileMetadataType,
+    GetCurrentStateRequest, GetFileInfoRequest, GetTableRequest as MangrobeGetTableRequest,
+    IdempotencyKey, ListTablesRequest as MangrobeListTablesRequest,
+    PartitionBound as MangrobePartitionBound, PartitionDataType as MangrobePartitionDataType,
+    PartitionField as MangrobePartitionField, PartitionFilter as MangrobePartitionFilter,
+    PartitionIn, PartitionPredicate as MangrobePartitionPredicate, PartitionRange,
+    PartitionTransform as MangrobePartitionTransform, PartitionValue,
+    ScalarType as MangrobeScalarType, StatisticsValue, StorageScheme as MangrobeStorageScheme,
+    StreamDataType as MangrobeStreamDataType, StreamField as MangrobeStreamField,
+    TableDefinition as MangrobeTableDefinition, TableIdentifier, TimeUnit as MangrobeTimeUnit,
+    TimestampType as MangrobeTimestampType, data_type, partition_predicate, partition_value,
 };
-use mangrobe_api_server::Mangrobe;
 use prost_types::Timestamp;
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
@@ -334,6 +336,7 @@ fn from_mangrobe_external_location(
     }
 
     Ok(ExternalLocation {
+        scheme: ExternalLocationScheme::S3,
         bucket: location
             .bucket
             .context("Mangrobe API returned S3 location without bucket")?,

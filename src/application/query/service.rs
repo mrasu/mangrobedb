@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use crate::application::datafusion::query::create_table::build_create_table_request;
-use crate::application::datafusion::query::object_name::parse_to_single_table_name;
+use crate::application::datafusion::query::codec::create_table::to_domain_create_table_request;
+use crate::application::datafusion::query::codec::object_name::to_single_table_name;
 use crate::application::datafusion::sql::execute_statement;
 use crate::application::datafusion::table_provider::MangrobeTableProvider;
 use crate::application::error::{ApplicationError, ApplicationUserError};
@@ -68,7 +68,7 @@ impl<C: CatalogPort + 'static, O: ObjectStorePort> QueryService<C, O> {
     }
 
     async fn create_table(&self, statement: &CreateTable) -> Result<QueryOutput, ApplicationError> {
-        let request = build_create_table_request(statement)?;
+        let request = to_domain_create_table_request(statement)?;
         self.catalog_port.create_table(request).await?;
 
         Ok(QueryOutput {
@@ -89,7 +89,7 @@ impl<C: CatalogPort + 'static, O: ObjectStorePort> QueryService<C, O> {
             .into());
         }
 
-        let table_name = parse_to_single_table_name(obj_name)?;
+        let table_name = to_single_table_name(obj_name)?;
         let table = self.catalog_port.get_table(&table_name).await?;
 
         let batch = convert_table_schema_to_response_batch(&table)?;

@@ -1,10 +1,10 @@
+use crate::application::datafusion::query::codec::error::CodecError;
+use crate::domain::port::catalog::CatalogError;
+use crate::domain::table_schema::TableSchemaError;
 use arrow::error::ArrowError;
 use datafusion::error::DataFusionError;
 use thiserror::Error;
 use url::ParseError;
-
-use crate::domain::port::catalog::CatalogError;
-use crate::domain::table_schema::TableSchemaError;
 
 #[derive(Debug, Error)]
 pub enum ApplicationError {
@@ -62,6 +62,12 @@ impl From<DataFusionError> for ApplicationError {
 
 impl From<TableSchemaError> for ApplicationError {
     fn from(value: TableSchemaError) -> Self {
+        anyhow::Error::new(value).into()
+    }
+}
+
+impl From<CodecError> for ApplicationError {
+    fn from(value: CodecError) -> Self {
         anyhow::Error::new(value).into()
     }
 }

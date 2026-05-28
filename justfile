@@ -17,6 +17,9 @@ client-create-table:
 client-show-table:
     cargo run --bin client_query -- --sql "SHOW CREATE TABLE hello_table"
 
+client-list-tables:
+    cargo run --bin client_list_tables
+
 client-migration-refresh:
     cargo run --bin client_migration -- refresh --database-url postgres://postgres:@127.0.0.1:5432/mangrobedb-development
 
