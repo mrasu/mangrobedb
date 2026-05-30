@@ -12,6 +12,8 @@ use crate::util::db::connect;
 use arrow_flight::FlightData;
 use arrow_flight::flight_service_server::FlightServiceServer;
 use futures::Stream;
+use mangrobe_api_server;
+use mangrobe_api_server::MangrobeGrpcServices;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -24,7 +26,9 @@ pub type SharedQueryService = Arc<QueryService<MangrobeCatalog, S3ObjectStore>>;
 pub type DoGetStream = Pin<Box<dyn Stream<Item = Result<FlightData, Status>> + Send + 'static>>;
 
 pub async fn serve(addr: SocketAddr, app_config: &AppConfig) -> Result<(), anyhow::Error> {
-    let catalog_port = Arc::new(build_catalog(app_config).await?);
+    let db = connect(app_config.database_url.clone()).await?;
+
+    let catalog_port = Arc::new(MangrobeCatalog::new(db.clone()));
 
     let common_ports = Arc::new(CommonPorts::new(Arc::new(RandomUuid)));
     let object_store_port = Arc::new(S3ObjectStore::from_env(&app_config.s3.bucket)?);
@@ -47,6 +51,11 @@ pub async fn serve(addr: SocketAddr, app_config: &AppConfig) -> Result<(), anyho
     let flusher_handle = Flusher::new(Arc::clone(&flush_service)).spawn();
 
     Server::builder()
+        .add_routes(
+            MangrobeGrpcServices::builder(db.clone())
+                .enable_reflection()
+                .build()?,
+        )
         .add_service(FlightServiceServer::new(SqlService::new(
             import_service,
             query_service,
@@ -63,11 +72,4 @@ pub async fn serve(addr: SocketAddr, app_config: &AppConfig) -> Result<(), anyho
     }
 
     Ok(())
-}
-
-async fn build_catalog(app_config: &AppConfig) -> Result<MangrobeCatalog, anyhow::Error> {
-    let db = connect(app_config.database_url.clone()).await?;
-    let catalog = MangrobeCatalog::new(db);
-
-    Ok(catalog)
 }

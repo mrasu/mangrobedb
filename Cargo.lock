@@ -3405,7 +3405,7 @@ checksum = "58093314a45e00c77d5c508f76e77c3396afbbc0d01506e7fae47b018bac2b1d"
 [[package]]
 name = "mangrobe-api-server"
 version = "0.1.0"
-source = "git+https://github.com/mrasu/mangrobe.git?rev=3189446bfd66bdc47eab1e35f7e8002a5b7b5b26#3189446bfd66bdc47eab1e35f7e8002a5b7b5b26"
+source = "git+https://github.com/mrasu/mangrobe.git?rev=29f6afafe9f75538077c2e48349f3edd9c715d0a#29f6afafe9f75538077c2e48349f3edd9c715d0a"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",

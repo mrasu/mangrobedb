@@ -32,7 +32,7 @@ object_store = { version = "0.13.2", features = ["aws"] }
 async-fs = "2.2.0"
 mangrobe-api-server = {
     git = "https://github.com/mrasu/mangrobe.git",
-    rev = "3189446bfd66bdc47eab1e35f7e8002a5b7b5b26",
+    rev = "29f6afafe9f75538077c2e48349f3edd9c715d0a",
     package = "mangrobe-api-server"
 }
 sea-orm = "1.1.20"

@@ -1,5 +1,5 @@
 use crate::application::datafusion::query::codec::create_table::CreateTableOptions;
-use crate::application::datafusion::query::codec::error::{validation_error, CodecError};
+use crate::application::datafusion::query::codec::error::{CodecError, validation_error};
 use crate::domain::table_schema::{ExternalLocation, ExternalLocationScheme};
 use url::Url;
 
