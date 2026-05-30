@@ -4,13 +4,19 @@ Schemaless OLAP database for AI and streaming workloads
 
 ## Features
 
-* Fast
-   * four-digit QPS streaming ingestion
+* Fast Ingestion
+   * PostgreSQL-class performance
 * Cost-efficient
    * S3-compatible object storage as the primary data layer
 * Low maintenance
    * No Hadoop dependency; runs on ECS and S3
    * No schema definition required before ingestion
+* Data sharing
+  * Share data through the Mangrobe protocol
+
+## Overview
+
+![](./docs/img/overview.png)
 
 ## Flow
 
@@ -71,14 +77,14 @@ sequenceDiagram
    # List tables
    just client-list-tables
    
-   # Show the schema: SHOW CREATE TABLE hello_table
-   just client-show-table
+   # Check the schema
+   just client-query "SHOW CREATE TABLE hello_table"
    
    # Ingest dummy data
    just client-ingest
    
-   # Run a query: select * from hello_table
-   just client-query
+   # Run a query
+   just client-query "SELECT * FROM hello_table WHERE stream = 0"
    ```
 
 ## ADBC
